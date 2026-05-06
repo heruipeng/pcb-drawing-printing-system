@@ -127,7 +127,7 @@ DEFAULT_PRINT_CONFIG: list = [
     "_pdf_+_",  # PDF 后缀
     "否",       # 阻抗对称制作
     "",         # 编辑者
-    "",         # Step名
+    "cad",      # Step名（默认: cad）
     "",         # Genesis 用户名
     {},         # 阻抗表 {key: [layer, values, ref_layer, ...]}
     "300",      # 留白
