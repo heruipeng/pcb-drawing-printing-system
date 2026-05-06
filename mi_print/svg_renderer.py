@@ -70,18 +70,12 @@ _color_types: List[str] = ["red", "green", "blue", "yellow"]
 # ═══════════════════════════════════════════
 
 class _SVGGenesisAPI:
-    """SVG 渲染专用 Genesis 接口"""
-
-    _cam: Any = None
+    """SVG 渲染专用 Genesis 接口 — 共用 mi_extractor.GenesisAPI 的 CAM 实例"""
 
     @classmethod
     def get_cam(cls):
-        if cls._cam is None:
-            if CAM is not None:
-                cls._cam = CAM(embedded=True)
-            else:
-                raise RuntimeError("cam_interface 不可用")
-        return cls._cam
+        """使用 mi_extractor.GenesisAPI 的统一 CAM 实例"""
+        return _mi.GenesisAPI.get_cam()
 
     @classmethod
     def _COM(cls, args: str) -> int:
