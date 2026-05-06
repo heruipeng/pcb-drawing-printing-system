@@ -40,10 +40,8 @@ from typing import List, Optional
 
 # 确保导入路径正确
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PARENT_DIR = os.path.dirname(_SCRIPT_DIR)
-_CAM_PATH = os.path.join(_PARENT_DIR, "gerber-tool")
-if os.path.isdir(_CAM_PATH) and _CAM_PATH not in sys.path:
-    sys.path.insert(0, _CAM_PATH)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
 
 # 内部模块
 from mi_print import config

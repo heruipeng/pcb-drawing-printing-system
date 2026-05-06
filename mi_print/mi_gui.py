@@ -25,16 +25,6 @@ import sys
 import json
 from typing import Dict, List, Optional, Any, Tuple
 
-# 确保 cam_interface 可寻址
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PARENT_DIR = os.path.dirname(_SCRIPT_DIR)
-_CAM_PATH = os.path.join(_PARENT_DIR, "gerber-tool")
-if os.path.isdir(_CAM_PATH) and _CAM_PATH not in sys.path:
-    sys.path.insert(0, _CAM_PATH)
-_MI_PATH = _SCRIPT_DIR
-if _MI_PATH not in sys.path:
-    sys.path.insert(0, _MI_PATH)
-
 # ═══════════════════════════════════════════
 # 依赖检测
 # ═══════════════════════════════════════════

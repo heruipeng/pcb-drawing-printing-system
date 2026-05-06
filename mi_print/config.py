@@ -36,11 +36,7 @@ GENESIS_TMP: str = os.environ.get(
     r"C:\tmp" if IS_WINDOWS else "/tmp"
 )
 
-# cam_interface.py 路径（用于 sys.path 引用）
-CAM_INTERFACE_PATH: str = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "gerber-tool"
-)
+# cam_interface.py 现在位于 mi_print/ 包内，通过相对导入引用
 
 # ═══════════════════════════════════════════
 # 路径配置

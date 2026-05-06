@@ -32,15 +32,8 @@ try:
 except ImportError:
     cairosvg = None
 
-# 引用 cam_interface 和内部模块
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PARENT_DIR = os.path.dirname(_SCRIPT_DIR)
-_CAM_PATH = os.path.join(_PARENT_DIR, "gerber-tool")
-if os.path.isdir(_CAM_PATH) and _CAM_PATH not in sys.path:
-    sys.path.insert(0, _CAM_PATH)
-
 try:
-    from cam_interface import CAM
+    from .cam_interface import CAM
 except ImportError:
     CAM = None
 

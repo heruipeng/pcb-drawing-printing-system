@@ -24,18 +24,11 @@ import getpass
 import string as _string
 from typing import Dict, List, Tuple, Optional, Any
 
-# 添加 cam_interface 到 sys.path
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PARENT_DIR = os.path.dirname(_SCRIPT_DIR)
-_CAM_PATH = os.path.join(_PARENT_DIR, "gerber-tool")
-if os.path.isdir(_CAM_PATH) and _CAM_PATH not in sys.path:
-    sys.path.insert(0, _CAM_PATH)
-
 try:
-    from cam_interface import CAM
+    from .cam_interface import CAM
 except ImportError:
     CAM = None
-    print("[WARN] cam_interface.py 未找到，Genesis 功能不可用")
+    print("[WARN] cam_interface 不可用，Genesis 功能受限")
 
 from . import config
 from . import geometry as _geom
