@@ -179,15 +179,11 @@ class GenesisAPI:
 
     @classmethod
     def init(cls, mode: str = "embedded", pid: Optional[int] = None) -> None:
-        """初始化 Genesis 连接模式
-        
-        Args:
-            mode: "embedded" (脚本面板内) 或 "gateway" (外部 Gateway)
-            pid:  Gateway 模式下的 get.exe PID
-        """
+        """初始化 Genesis 连接模式"""
         cls._mode = mode
         cls._pid = pid
         cls._cam = None  # 重置以重新创建
+        print(f"[GenesisAPI] init: mode={mode}, pid={pid}")
 
     @classmethod
     def get_cam(cls) -> Any:
@@ -195,8 +191,10 @@ class GenesisAPI:
         if cls._cam is None:
             if CAM is not None:
                 if cls._mode == "gateway" and cls._pid:
+                    print(f"[GenesisAPI] 创建 Gateway CAM (pid={cls._pid})")
                     cls._cam = CAM(embedded=False, pid=cls._pid)
                 else:
+                    print(f"[GenesisAPI] 创建 Embedded CAM")
                     cls._cam = CAM(embedded=True)
             else:
                 raise RuntimeError("cam_interface 不可用")

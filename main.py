@@ -379,11 +379,12 @@ def main() -> int:
 
     # 初始化 Genesis 连接模式
     if args.pid:
+        print(f"[main] Gateway 模式, pid={args.pid}")
         from mi_print import mi_extractor as _init_mi
         _init_mi.GenesisAPI.init(mode="gateway", pid=args.pid)
-        # 设置 step 到 print_config
         _init_mi.print_config[6] = args.step or ""
     else:
+        print(f"[main] Embedded 模式")
         from mi_print import mi_extractor as _init_mi
         _init_mi.GenesisAPI.init(mode="embedded")
         _init_mi.print_config[6] = args.step or ""
