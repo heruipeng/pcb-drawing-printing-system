@@ -26,10 +26,10 @@ except ImportError:
     svgwrite = None
     print("[WARN] svgwrite 未安装，SVG 渲染不可用。pip install svgwrite")
 
-# cairosvg - 可选依赖
+# cairosvg - 可选依赖（需要系统安装 libcairo C 库）
 try:
     import cairosvg
-except ImportError:
+except (ImportError, OSError):
     cairosvg = None
 
 try:

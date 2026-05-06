@@ -46,8 +46,10 @@ if _SCRIPT_DIR not in sys.path:
 # 内部模块
 from mi_print import config
 from mi_print import mi_extractor as _mi
-from mi_print import svg_renderer as _svg
-from mi_print import database as _db
+
+# svg_renderer / database 按需懒加载（避免 Windows 无 cairo 时崩溃）
+_svg = None
+_db = None
 
 # ═══════════════════════════════════════════
 # 命令处理器
@@ -128,6 +130,7 @@ def cmd_generate(job: str, step: str, layers: List[str],
 
     # 生成 SVG
     try:
+        from mi_print import svg_renderer as _svg
         gen = _svg.SVGGenerator(job, step)
         result, error = gen.generate(
             layers,
