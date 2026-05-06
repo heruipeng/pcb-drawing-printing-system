@@ -500,8 +500,10 @@ class CAM:
 
         if embedded:
             self._io = _EmbeddedCOM()
+            print(f"[CAM.__init__] Embedded mode")
         elif pid:
             self._io = _GatewayCOM(pid)
+            print(f"[CAM.__init__] Gateway mode, pid={pid}, type={type(self._io).__name__}")
             self._io.connect(pid)  # 自动连接 Gateway
         else:
             raise ValueError("必须指定 embedded=True 或 pid=进程号")
