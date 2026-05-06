@@ -1,0 +1,17 @@
+# MI 打印图纸 - 依赖列表
+# =======================
+# 胜宏科技（惠州）MI 制程指示系统
+
+# 核心依赖
+svgwrite>=1.4           # SVG 图形生成
+cairosvg>=2.7            # SVG 转 PDF（可选，无则仅输 SVG）
+
+# GUI 依赖（可选，无 PyQt5 则仅 CLI）
+PyQt5>=5.15              # GUI 界面
+
+# 数据库（可选，按需安装）
+cx_Oracle>=8.3           # Oracle 数据库连接
+PyMySQL>=1.0             # MySQL 数据库连接
+
+# Excel 输出
+xlwt>=1.3                # 导出阻抗到 XLS

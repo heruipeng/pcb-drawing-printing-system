@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.env
+*.svg
+*.pdf
+*.tgz
+*.xls
+*.xlsx
+
+# 参考文件（不提交）
+ref_*
