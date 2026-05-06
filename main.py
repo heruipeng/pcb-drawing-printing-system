@@ -64,7 +64,7 @@ def cmd_list_layers(job: str, step: str) -> int:
     print(f"{'='*60}\n")
 
     try:
-        layers = _mi.get_layers(job)
+        layers = _mi.get_layers(job, step)
     except Exception as e:
         print(f"[ERROR] 获取层列表失败: {e}")
         return 1
@@ -116,7 +116,7 @@ def cmd_generate(job: str, step: str, layers: List[str],
     # 确定目标层
     if all_layers:
         try:
-            all_layer_data = _mi.get_layers(job)
+            all_layer_data = _mi.get_layers(job, step)
             layers = [row[0] for row in all_layer_data if row[0]]
         except Exception as e:
             print(f"[ERROR] 获取层列表失败: {e}")
@@ -345,8 +345,11 @@ def main() -> int:
                         default=os.environ.get("JOB", None),
                         help="料号名（或设置环境变量 JOB）")
     parser.add_argument("--step", "-s",
-                        default=os.environ.get("STEP", "cad"),
-                        help="Step 名（默认: cad，或设置环境变量 STEP）")
+                        default=os.environ.get("STEP", ""),
+                        help="Step 名（默认: 空，或设置环境变量 STEP）")
+    parser.add_argument("--pid", "-p", type=int,
+                        default=None,
+                        help="Genesis get.exe PID（Gateway 远程模式）")
     parser.add_argument("--output", "-o",
                         default="",
                         help="输出目录（默认: 配置文件中的 SVG_DIR）")
@@ -373,6 +376,17 @@ def main() -> int:
                         help="生成所有层的图纸")
 
     args = parser.parse_args()
+
+    # 初始化 Genesis 连接模式
+    if args.pid:
+        from mi_print import mi_extractor as _init_mi
+        _init_mi.GenesisAPI.init(mode="gateway", pid=args.pid)
+        # 设置 step 到 print_config
+        _init_mi.print_config[6] = args.step or ""
+    else:
+        from mi_print import mi_extractor as _init_mi
+        _init_mi.GenesisAPI.init(mode="embedded")
+        _init_mi.print_config[6] = args.step or ""
 
     # 检查 job
     if not args.job and not args.search and not args.gui:

@@ -174,13 +174,30 @@ class GenesisAPI:
     """
 
     _cam: Any = None
+    _mode: str = "embedded"
+    _pid: Optional[int] = None
+
+    @classmethod
+    def init(cls, mode: str = "embedded", pid: Optional[int] = None) -> None:
+        """初始化 Genesis 连接模式
+        
+        Args:
+            mode: "embedded" (脚本面板内) 或 "gateway" (外部 Gateway)
+            pid:  Gateway 模式下的 get.exe PID
+        """
+        cls._mode = mode
+        cls._pid = pid
+        cls._cam = None  # 重置以重新创建
 
     @classmethod
     def get_cam(cls) -> Any:
         """获取 CAM 实例（单例）"""
         if cls._cam is None:
             if CAM is not None:
-                cls._cam = CAM(embedded=True)
+                if cls._mode == "gateway" and cls._pid:
+                    cls._cam = CAM(embedded=False, pid=cls._pid)
+                else:
+                    cls._cam = CAM(embedded=True)
             else:
                 raise RuntimeError("cam_interface 不可用")
         return cls._cam
@@ -516,8 +533,12 @@ def _parse_disp_info(info_list: List[str]) -> Dict:
 # 层信息
 # ═══════════════════════════════════════════
 
-def get_layers(job_name: str) -> List[List[str]]:
+def get_layers(job_name: str, step: str = "") -> List[List[str]]:
     """获取料号的所有层及其分类
+
+    Args:
+        job_name: 料号名
+        step: Step 名（为空时从 print_config[6] 读取）
 
     Returns:
         [[name, order_num, polarity, type_code], ...]
@@ -525,7 +546,7 @@ def get_layers(job_name: str) -> List[List[str]]:
                    GO=金面, CA=碳油, DD=钻孔, SE=SET, NO=Note
     """
     gf = GenesisAPI
-    step = print_config[6]
+    step = step or print_config[6]
 
     # 获取成型范围
     try:
