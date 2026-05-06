@@ -16,5 +16,5 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 if __name__ == "__main__":
-    from mi_gui import main
+    from mi_print.mi_gui import main
     main()

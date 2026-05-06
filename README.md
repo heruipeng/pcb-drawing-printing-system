@@ -43,18 +43,19 @@ PCB 行业 MI 图纸自动生成系统。从 Genesis/InCAMPro CAM 软件中自�
 ## 项目结构
 
 ```
-mi-print/
-├── __init__.py          # 包声明
-├── config.py            # 全局配置（DB连接、颜色、Note类型）
-├── geometry.py          # 几何计算工具（角度、距离、旋转）
-├── database.py          # 数据库层（Oracle + MySQL 统一接口）
-├── mi_extractor.py      # MI 标记提取/解析/验证
-├── svg_renderer.py      # SVG 渲染引擎
-├── mi_gui.py            # PyQt5 GUI 界面
-├── main.py              # CLI 入口
-├── run_gui.py           # GUI 入口
-├── requirements.txt     # 依赖列表
-└── README.md            # 本文件
+pcb-drawing-printing-system/
+├── mi_print/           # 核心包
+│   ├── __init__.py     # 包声明
+│   ├── config.py       # 全局配置
+│   ├── geometry.py     # 几何计算
+│   ├── database.py     # Oracle + MySQL
+│   ├── mi_extractor.py # MI 标记提取
+│   ├── svg_renderer.py # SVG 渲染
+│   └── mi_gui.py       # PyQt5 GUI
+├── main.py             # CLI 入口
+├── run_gui.py          # GUI 入口
+├── requirements.txt    # 依赖列表
+└── README.md           # 本文件
 ```
 
 ## 依赖
@@ -94,16 +95,16 @@ pip install cx_Oracle
 
 ```bash
 # 基本用法
-python -m mi_print.main <料号名> [选项]
+python main.py --job <料号名> --step <step名> [选项]
 
 # 示例
-python -m mi_print.main H50208GN013A1                    # 生成所有层图纸
-python -m mi_print.main H50208GN013A1 --step cad          # 指定 Step
-python -m mi_print.main H50208GN013A1 --layers c1,s1      # 只输出指定层
-python -m mi_print.main H50208GN013A1 --output /tmp/mi    # 输出目录
-python -m mi_print.main H50208GN013A1 --unit mm           # 毫米单位
-python -m mi_print.main H50208GN013A1 --no-pdf            # 仅 SVG
-python -m mi_print.main H50208GN013A1 --profile           # 含成型轮廓
+python main.py --job H50208GN013A1 --step cad                    # 生成所有层图纸
+python main.py --job H50208GN013A1 --step cad --layers c1,s1      # 只输出指定层
+python main.py --job H50208GN013A1 --step cad --output /tmp/mi    # 输出目录
+python main.py --job H50208GN013A1 --step cad --unit mm           # 毫米单位
+python main.py --job H50208GN013A1 --step cad --no-pdf            # 仅 SVG
+python main.py --job H50208GN013A1 --step cad --profile           # 含成型轮廓
+python main.py --job H50208GN013A1 --step cad --list-layers       # 列出可用层
 ```
 
 ### GUI 模式
