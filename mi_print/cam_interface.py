@@ -168,11 +168,26 @@ class _EmbeddedCOM:
         self.COMANS = self.READANS[:]
         return self.STATUS
 
+    def AUX(self, args):
+        """
+        执行 Genesis AUX 命令（嵌入式协议）。
+
+        STDOUT → @%#%@AUX <args>
+        STDIN  ← STATUS (int)
+        STDIN  ← READANS (string)
+        """
+        self._send('AUX', args)
+        self.STATUS = int(sys.stdin.readline())
+        self.READANS = sys.stdin.readline().strip()
+        self.COMANS = self.READANS[:]
+        return self.STATUS
+
     def PAUSE(self, msg):
         """暂停并显示消息"""
         self._send('PAUSE', msg)
         self.STATUS = int(sys.stdin.readline())
-        self.READANS = sys.stdin.readline()
+        self.READANS = sys.stdin.readline().strip()
+        self.PAUSANS = sys.stdin.readline().strip()
         return self.STATUS
 
     def MOUSE(self, msg, mode='p'):
@@ -237,18 +252,24 @@ class _EmbeddedCOM:
 
     @staticmethod
     def convertToNumber(val):
-        """安全将字符串/数值转换为数字（兼容旧接口）"""
+        """安全将字符串/数值转换为数字（兼容旧接口）
+
+        与原始 genClasses.convertToNumber 行为一致：
+        失败时返回原值而非 0。
+        """
         if val is None:
-            return 0
+            return val
         if isinstance(val, (int, float)):
             return val
+        convert_value = val
         try:
-            return int(val)
+            convert_value = int(val)
         except (ValueError, TypeError):
             try:
-                return float(val)
+                convert_value = float(val)
             except (ValueError, TypeError):
-                return 0
+                pass  # 保留原字符串值
+        return convert_value
 
 
 # ═══════════════════════════════════════════
@@ -435,9 +456,15 @@ class _GatewayCOM:
         try:
             self.STATUS = int(self.__in_out(f'COM {args}'))
             self.COMANS = self.__in_out('COMANS')
+            # 关键修复：读取 answer 行避免协议失步
+            _answer = self.__in_out('COMANS')
         except (ConnectionError, ValueError, OSError):
             self.STATUS = -2
         return self.STATUS
+
+    def AUX(self, args):
+        """执行 AUX 命令（网关模式下委托给 COM）"""
+        return self.COM(args)
 
     def PAUSE(self, msg):
         """暂停并显示消息（网关模式下效果有限）"""
@@ -501,18 +528,24 @@ class _GatewayCOM:
 
     @staticmethod
     def convertToNumber(val):
-        """安全将字符串/数值转换为数字（兼容旧接口）"""
+        """安全将字符串/数值转换为数字（兼容旧接口）
+
+        与原始 genClasses.convertToNumber 行为一致：
+        失败时返回原值而非 0。
+        """
         if val is None:
-            return 0
+            return val
         if isinstance(val, (int, float)):
             return val
+        convert_value = val
         try:
-            return int(val)
+            convert_value = int(val)
         except (ValueError, TypeError):
             try:
-                return float(val)
+                convert_value = float(val)
             except (ValueError, TypeError):
-                return 0
+                pass  # 保留原字符串值
+        return convert_value
 
 
 # ═══════════════════════════════════════════

@@ -162,7 +162,7 @@ def _init_symbol_styles() -> None:
         "stroke-linejoin": "round",
         "stroke-width": "0.1",
     }
-    _all_symbol_dist["circle.profile"] = _all_symbol_dist["path.profile"].copy()
+    _all_symbol_dist["circle.profile"] = _all_symbol_dist["path.profile"]
 
     _all_symbol_dist["line.markgf"] = {
         "fill": "none",

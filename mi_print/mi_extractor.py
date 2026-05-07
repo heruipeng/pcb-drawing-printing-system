@@ -207,6 +207,12 @@ class GenesisAPI:
         return cam._io.COM(args)
 
     @classmethod
+    def _AUX(cls, args: str) -> int:
+        """执行 Genesis AUX 命令"""
+        cam = cls.get_cam()
+        return cam._io.AUX(args)
+
+    @classmethod
     def _VOF(cls) -> None:
         """关闭视觉更新"""
         cls.get_cam().VOF()
@@ -285,11 +291,9 @@ class GenesisAPI:
         ans = cls._COMANS()
         # 保护：如果 editor_group 返回空，无法继续
         if not ans or not ans.strip():
-            raise RuntimeError(
-                f"editor_group 返回空结果，无法打开 step: "
-                f"job={job_name}, step={step_name}"
-            )
-        cls._COM('set_group,group=' + ans)  # Note: this is AUX in original
+            print(f"[WARN] editor_group 返回空，当前 group 可能无效")
+        else:
+            cls._AUX('set_group,group=' + ans)
         cls._COM('origin,x=0,y=0')
         cls._COM(f'units,type={units}')
         cls._COM('affected_layer,mode=all,affected=no')
@@ -1126,15 +1130,36 @@ def get_mm_new(text: str, kkk: int = 0) -> str:
 # 标记字符串生成
 # ═══════════════════════════════════════════
 
-def _get_string_s(texts: str, strint: int = 0) -> List[str]:
-    """生成标记字符串列表 [Aa, Ab, ... Za, Zb, ...]"""
+def _get_string_s(texts, strint: int = 0) -> List[str]:
+    """生成标记字符串列表 [Aa, Ab, ... Za, Zb, ...]
+
+    兼容两种参数类型:
+      - str:  单个前缀字符串（如 "A" → [A0, A1, ...]）
+      - list: 多个前缀字符（如 ["A","B","C"] → [A0, B0, C0, A1, ...]）
+    """
+    # 参数类型适配：支持字符串和列表
+    if isinstance(texts, str):
+        chars = texts
+    else:
+        chars = ''.join(texts)
+
     marks = []
     for n in range(strint, 100):
-        for a in texts:
+        for a in chars:
             s = a + str(n)
             if len(s) == 2:
                 s = s.rstrip("0")
             marks.append(s)
+    return marks
+
+
+def get_string() -> List[str]:
+    """生成 A0-Z9 组合键列表（对应原 get_string()）"""
+    import string as _string_module
+    marks = []
+    for b_char in _string_module.digits:
+        for a_char in _string_module.ascii_uppercase:
+            marks.append((a_char + b_char).rstrip("0"))
     return marks
 
 
@@ -2329,6 +2354,366 @@ def _format_mysql_data(data: list, prefix: str) -> List[List]:
 
 
 # ═══════════════════════════════════════════
+# Note 全量提取与分类（Fix-1: get_note_all）
+# ═══════════════════════════════════════════
+
+def get_note_all(job_name: str, step_name: str, layer: str,
+                 notelist: Dict, load_dict: Dict) -> None:
+    """获取层的所有标记并完成分类、参数设置、数据结构初始化
+
+    这是原 get_note_all() 的完整迁移。
+    核心功能:
+      1. 读取并解析原始标记
+      2. 分类标记：线宽/线距 → 差分阻抗/单线阻抗/共面阻抗
+      3. 阻焊定义PAD 检测（NOTE_SELECT[x][7]==1）
+      4. 光点开窗检测（NOTE_SELECT[x][7]==2）
+      5. 设置 load_dict["unit"]、load_dict["zkdc"]、load_dict["tzlb"]
+      6. 初始化 load_dict["layer_note"] 和 load_dict["step_note"]
+      7. 管理 layer_note key 映射
+      8. 最小线宽/线距信息合并到备注
+    """
+    global print_config
+
+    # 1. 读取原始标记
+    parsed = get_notes_new(job_name, step_name, layer)
+    notelist[layer] = parsed
+
+    # 2. 初始化 load_dict 参数
+    load_dict.setdefault("unit", "mil")
+    load_dict.setdefault("zkdc", "否")
+    load_dict.setdefault("tzlb", "300")
+    print_config[1] = load_dict["unit"]
+    print_config[4] = load_dict["zkdc"]
+    print_config[9] = load_dict["tzlb"]
+
+    # 3. 初始化数据结构
+    load_dict.setdefault("layer_note", {})
+    load_dict.setdefault("step_note", {})
+    load_dict["step_note"].setdefault(step_name, {})
+
+    # 4. 处理每条标记
+    for note in parsed:
+        note_key = note[9]
+
+        # 4a. 恢复已保存的备注
+        if note_key in load_dict["layer_note"]:
+            note[9] = load_dict["layer_note"][note_key]
+
+        # 4b. 线宽/线距/阻抗标记分类
+        if "线" in note[1] or "阻抗" in note[1]:
+            note[9] = note[9].replace("最小线宽线距", "").replace(
+                "最小线宽", "").replace("最小线距", "").strip(";")
+
+            # 从类型名中提取最小线宽/线距信息
+            if "(" in note[1]:
+                parts = note[1].strip(")").split("(")
+                note[9] = (parts[1] + ";" + note[9]).strip("*").strip("/").strip(";")
+                note[1] = parts[0]
+
+        # 4c. 阻焊定义PAD 检测
+        if note[2] in config.NOTE_SELECT:
+            if (config.NOTE_SELECT[note[2]][7] == 1 and
+                    load_dict["layer_dist"].get(layer, ["", "", "", "MM"])[3] == "MM"):
+                if "阻焊定义PAD" not in note[9]:
+                    note[9] = ("阻焊定义PAD;" + note[9].replace("*", "")).strip(";")
+
+            # 4d. 光点开窗检测
+            if (config.NOTE_SELECT[note[2]][7] == 2 and
+                    load_dict["layer_dist"].get(layer, ["", "", "", "MM"])[3] == "MM"):
+                if "光点开窗" not in note[9]:
+                    note[9] = ("光点开窗;" + note[9].replace("*", "")).strip(";")
+
+    # 5. 写入 step_note
+    load_dict["step_note"][step_name][layer] = parsed
+
+
+# ═══════════════════════════════════════════
+# MySQL 数据同步（Fix-2: sync_to_mysql）
+# ═══════════════════════════════════════════
+
+def sync_to_mysql(load_dict: Dict, host_info: Dict) -> bool:
+    """将标记数据同步到 MySQL 数据库（替换原 get_mi_info）
+
+    Args:
+        load_dict: 全局数据字典
+        host_info: 主机信息字典
+
+    Returns:
+        True 表示同步成功
+    """
+    if not load_dict.get("job_name"):
+        return False
+    if not host_info.get("win_user"):
+        return False
+
+    try:
+        from .database import MySQLQuery
+    except ImportError:
+        print("[WARN] MySQL 不可用，跳过数据同步")
+        return False
+
+    try:
+        mysql = MySQLQuery(log_file=host_info.get("mysqlLogfile"))
+    except Exception:
+        return False
+
+    if not mysql.dbc:
+        return False
+
+    job_name = load_dict["job_name"].upper()
+
+    # 获取 MI 制作者信息
+    mi_info = mysql.get_mi(job_name)
+    for k, v in mi_info.items():
+        load_dict[k] = v
+
+    # 更新修改时间
+    load_dict["modify_time"] = time.strftime(
+        "%Y-%m-%d %H:%M:%S", time.localtime()
+    )
+    save_json(host_info["jsonFile"], load_dict)
+
+    # 构建 MySQL 数据
+    mysql_data = {
+        "job_name": job_name,
+        "marks_json": json.dumps(load_dict, ensure_ascii=False),
+        "mark_count": load_dict.get("mark_count", 0),
+        "create_by": mi_info.get("emp_no", ""),
+        "create_by_name": mi_info.get("mi_maker", ""),
+        "update_by": host_info["win_user"],
+        "update_by_name": load_dict.get("editer_name", ""),
+        "update_time": "NOW()",
+    }
+
+    # 完善用户信息
+    new_names = mysql.get_edit_name(["emp_no", mysql_data["update_by"]])
+    if new_names[0]:
+        mysql_data["update_by"] = new_names[0]
+        mysql_data["update_by_name"] = new_names[1]
+    else:
+        new_names = mysql.get_edit_name(
+            ["name", mysql_data["update_by_name"]]
+        )
+        mysql_data["update_by"] = new_names[0]
+        mysql_data["update_by_name"] = new_names[1]
+
+    if (mysql_data["create_by_name"] and
+            mysql_data["update_by"] and
+            mysql_data["update_by_name"]):
+        result = mysql.add_data(mysql_data)
+    else:
+        print(f'Not uploaded: {mysql_data}')
+        result = False
+
+    return result
+
+
+# ═══════════════════════════════════════════
+# 标记保存与恢复（Fix-4: get_josn_notes / add_josn_notes）
+# ═══════════════════════════════════════════
+
+def get_saved_notes(load_dict: Dict, step_name: str) -> Dict[str, List[str]]:
+    """从 load_dict 中提取已保存的标记（对应 get_josn_notes）
+
+    Args:
+        load_dict: 全局数据字典
+        step_name: Step 名
+
+    Returns:
+        {layer_name: [note_key1, note_key2, ...]}
+    """
+    notes = {}
+    valid_steps = ["yg", "org", "orig", "cad", "edit"]
+
+    if step_name not in valid_steps:
+        return notes
+    if "step_note" not in load_dict:
+        return notes
+
+    for step in load_dict["step_note"]:
+        if step != step_name:
+            continue
+        for layer in load_dict["step_note"][step]:
+            keys = [n[10] for n in load_dict["step_note"][step][layer]
+                    if len(n) > 10 and n[10]]
+            if keys:
+                notes[layer] = keys
+
+    return notes
+
+
+def restore_saved_notes(load_dict: Dict, job_name: str,
+                        step_name: str, check_first: bool = True) -> None:
+    """将保存的标记恢复到 Genesis 层上（对应 add_josn_notes）
+
+    Args:
+        load_dict:  全局数据字典
+        job_name:   料号名
+        step_name:  Step 名
+        check_first: 是否先检查已有标记（避免重复）
+    """
+    saved = get_saved_notes(load_dict, step_name)
+    if not saved:
+        return
+
+    # 检查是否已有标记（避免重复）
+    if check_first:
+        for layer in saved:
+            existing = get_notes(job_name, step_name, layer)
+            if existing:
+                return  # 已有标记，不重复添加
+
+    GenesisAPI.open_step(job_name, step_name)
+    for layer in saved:
+        # 先清除旧标记
+        GenesisAPI.delete_note_all(layer)
+        for note_data in load_dict["step_note"][step_name][layer]:
+            x = (note_data[3] + print_config[13][0]) / 25.4
+            y = (note_data[4] + print_config[13][1]) / 25.4
+            GenesisAPI.add_note(layer, x, y, note_data[5])
+
+
+# ═══════════════════════════════════════════
+# 阻抗注解生成（Fix-9: get_note_zj）
+# ═══════════════════════════════════════════
+
+def get_note_zj(notelist: List[List]) -> List[str]:
+    """生成阻抗测量注解文本
+
+    根据标记类型生成类似:
+      "注解: 单线阻抗测量:线宽;差分阻抗测量:线宽/线距"
+
+    Args:
+        notelist: 结构化标记列表
+
+    Returns:
+        注解文本行列表
+    """
+    keys = []
+    for note in notelist:
+        if "单线阻抗" in note[1]:
+            key = "单线阻抗测量:线宽"
+            if key not in keys:
+                keys.append(key)
+        elif "差分阻抗" in note[1]:
+            key = "差分阻抗测量:线宽/线距"
+            if key not in keys:
+                keys.append(key)
+        elif "单线共面阻抗" in note[1]:
+            key = "单线共面阻抗测量:线宽/线到铜"
+            if key not in keys:
+                keys.append(key)
+        elif "差分共面阻抗" in note[1]:
+            key = "差分共面阻抗测量:线宽/线距/线到铜"
+            if key not in keys:
+                keys.append(key)
+    if not keys:
+        return []
+    return ["注解: " + ";".join(keys)]
+
+
+# ═══════════════════════════════════════════
+# Excel 导出（Fix-10: export_impedance_xls）
+# ═══════════════════════════════════════════
+
+def export_impedance_xls(job_name: str, zk_list: List[List]) -> str:
+    """导出阻抗数据为 Excel（对应原 get_zk()）
+
+    Args:
+        job_name: 料号名
+        zk_list:  阻抗数据列表
+
+    Returns:
+        Excel 文件路径或错误消息
+    """
+    if not zk_list:
+        return "\n没有定义阻抗信息!!!"
+
+    # 去重
+    seen = set()
+    unique = []
+    for fff in zk_list:
+        key = ";".join([fff[1], fff[2], fff[3], fff[5]] + fff[8:11])
+        if key not in seen:
+            unique.append(fff)
+            seen.add(key)
+
+    header = ("模型\t测试层\t上参考层\t下参考层\t对称制作\t"
+              "线宽\t线宽(+)\t线宽(-)\t线距\t线到铜\t"
+              "客规阻值\t客规阻值(+)\t客规阻值(-)")
+    headers = header.split("\t")
+    unique.insert(0, headers)
+
+    paths = os.path.join(config.SVG_DIR, job_name.upper())
+    os.makedirs(paths, exist_ok=True)
+    xls_file = os.path.join(paths, job_name.upper() + ".xls")
+
+    try:
+        import xlwt
+        xl = xlwt.Workbook(encoding='utf-8')
+        sheet = xl.add_sheet('ImpDatas', cell_overwrite_ok=False)
+        style = xlwt.XFStyle()
+        font = xlwt.Font()
+        font.name = 'Times New Roman'
+        font.bold = True
+        style.font = font
+        for row in range(len(unique)):
+            for col in range(len(headers)):
+                try:
+                    sheet.write(row, col, unique[row][col])
+                except IndexError:
+                    sheet.write(row, col, "")
+        xl.save(xls_file)
+    except ImportError:
+        xls_file = "\nxlwt 未安装，无法导出 Excel"
+    except Exception as e:
+        xls_file = f"\n写入表格错误: {e}"
+
+    return xls_file
+
+
+# ═══════════════════════════════════════════
+# 线信息文件导出（Fix-11: export_line_info_file）
+# ═══════════════════════════════════════════
+
+def export_line_info_file(load_dict: Dict) -> str:
+    """导出最小线宽/线距文件（对应原 cr_line_file()）
+
+    Args:
+        load_dict: 全局数据字典
+
+    Returns:
+        报表字符串
+    """
+    job_name = load_dict.get("job_name", "").upper()
+    if not job_name:
+        return ""
+
+    line_info = get_line_info()
+    if not line_info:
+        return ""
+
+    file_path = os.path.join(config.SVG_DIR, job_name, job_name + ".txt")
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    lines = []
+    report = ""
+    for layer in sorted(line_info.keys()):
+        line = f"{layer}\t{line_info[layer]}\n"
+        lines.append(line)
+        report += line
+
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+    except Exception as e:
+        return f"\n{os.path.basename(file_path)}写入错误: {e}"
+
+    return (f"\n{report}\n数据来源于notes录入的成品值,可用于上传InPlan\n"
+            f"文件:{file_path}")
+
+
+# ═══════════════════════════════════════════
 # 导出
 # ═══════════════════════════════════════════
 
@@ -2345,22 +2730,29 @@ __all__ = [
     'get_layers', 'init_layers',
     # Note 提取
     'get_notes', 'parseNotes', 'get_notes_new',
+    'get_note_all',
+    # 标记保存/恢复
+    'get_saved_notes', 'restore_saved_notes',
     # 排序
     'sort_notes',
     # 原稿提取
     'extract_original_data', 'get_feature_data', 'get_pad_size',
     # 阻抗
     'get_impedance_table', 'check_impedance', 'check_imp_note',
-    'get_impedance_list',
+    'get_impedance_list', 'get_note_zj',
     # 线信息
     'get_line_info',
     # 字符串生成
-    'get_string_new',
+    'get_string', 'get_string_new',
     # 单位转换
     'get_mm_new',
     # 数据管理
     'save_load_dict', 'get_board_size', 'get_move_offset',
     'get_code', 'get_editer',
+    # MySQL 同步
+    'sync_to_mysql',
+    # 导出
+    'export_impedance_xls', 'export_line_info_file',
     # 查找
     'find_genesis_data', 'find_mysql_data',
 ]

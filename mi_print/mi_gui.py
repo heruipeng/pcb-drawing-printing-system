@@ -84,26 +84,12 @@ def _unit_text() -> str:
 # 函数包装（桥接旧 API → 新 API）
 # ═══════════════════════════════════════════
 
-# 以下函数在 mi_extractor 中部分缺失，在此提供适配
+# 以下函数在 mi_extractor 中已有完整实现，在此桥接
 
 def _get_note_all_ext(job_name: str, step: str, layer: str,
                       notelist: Dict, load_dict: Dict) -> None:
-    """获取层的所有标记并填充到 notelist 字典"""
-    try:
-        raw = _mi.get_notes(job_name, step, layer)
-        parsed = _mi.parseNotes(raw)
-        if layer not in notelist:
-            notelist[layer] = []
-        notelist[layer] = parsed
-    except Exception as e:
-        print(f"[WARN] 获取层 {layer} 标记失败: {e}")
-        if layer not in notelist:
-            notelist[layer] = []
-    # 同时更新 load_dict
-    if "layer_dist" not in load_dict:
-        load_dict["layer_dist"] = {}
-    if layer not in load_dict["layer_dist"]:
-        load_dict["layer_dist"][layer] = ["", "", "", "", "", {}, 0, 0]
+    """获取层的所有标记并填充到 notelist 字典（桥接到 get_note_all）"""
+    _mi.get_note_all(job_name, step, layer, notelist, load_dict)
 
 
 def _add_note_ext(job_name: str, step: str, layer: str) -> None:
