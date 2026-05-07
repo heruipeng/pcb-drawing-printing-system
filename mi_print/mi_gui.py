@@ -923,10 +923,14 @@ if _PYQT5_AVAILABLE:
             # 生成 SVG
             try:
                 gen = _svg.SVGGenerator(self.job_name, self.step_name)
+                # 计算折断特征选项
+                step_layers = _svg._get_step_info(self.job_name, self.step_name)[::-1] + [self.step_name]
+                break_feat = _svg._get_break(self.job_name, step_layers, list(page_groups.values())[0])
                 for page_num, layers in page_groups.items():
                     result, error = gen.generate(
                         layers, output_dir=_mi.config.SVG_DIR,
-                        profile_flag=0, opacity_flag=self.opacity_flag
+                        profile_flag=0, opacity_flag=self.opacity_flag,
+                        break_feat=break_feat
                     )
                     if error:
                         self._info_dialog(error)

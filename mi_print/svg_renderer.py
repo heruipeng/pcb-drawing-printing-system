@@ -69,72 +69,6 @@ _color_types: List[str] = ["red", "green", "blue", "yellow"]
 # Genesis 接口（SVG 专用）
 # ═══════════════════════════════════════════
 
-class _SVGGenesisAPI:
-    """SVG 渲染专用 Genesis 接口 — 共用 mi_extractor.GenesisAPI 的 CAM 实例"""
-
-    @classmethod
-    def get_cam(cls):
-        """使用 mi_extractor.GenesisAPI 的统一 CAM 实例"""
-        return _mi.GenesisAPI.get_cam()
-
-    @classmethod
-    def _COM(cls, args: str) -> int:
-        return cls.get_cam()._io.COM(args)
-
-    @classmethod
-    def _VOF(cls):
-        cls.get_cam()._io.COM('vof')
-
-    @classmethod
-    def _VON(cls):
-        cls.get_cam()._io.COM('von')
-
-    @classmethod
-    def DO_INFO(cls, args: str) -> Dict:
-        return cls.get_cam().DO_INFO(args)
-
-    @classmethod
-    def DO_info(cls, args: str, units: str = "mm") -> Dict:
-        return cls.get_cam()._io.DO_INFO(args, units=units)
-
-    @classmethod
-    def INFO(cls, args: str) -> List[str]:
-        return cls.get_cam()._io.INFO(args, units="mm")
-
-    @classmethod
-    def INFOMM(cls, args: str) -> List[str]:
-        return cls.INFO(args)
-
-    @classmethod
-    def GFDO_INFO(cls, args: str) -> Dict:
-        cam = cls.get_cam()
-        lines = cam._io.INFO(args, units="mm")
-        return _mi._gf_parse_info(lines)
-
-    @classmethod
-    def get_features(cls, spec: str) -> List[str]:
-        try:
-            cls._VOF()
-            lines = cls.INFO(spec)
-            cls._VON()
-        except Exception:
-            lines = []
-        return lines
-
-    @classmethod
-    def open_step(cls, job: str, step: str, units: str = "inch"):
-        cls._COM(f'open_entity,job={job},type=step,name={step},iconic=no')
-        cls._COM(f'editor_group,job={job},is_step=yes,name={step}')
-        ans = cls.get_cam()._io.COMANS
-        cls._COM('set_group,group=' + ans)
-        cls._COM('origin,x=0,y=0')
-        cls._COM(f'units,type={units}')
-        cls._COM('affected_layer,mode=all,affected=no')
-        cls._COM('clear_layers')
-        cls._COM('filter_reset,filter_name=popup')
-        cls._COM('adv_filter_reset,filter_name=popup')
-
-
 def _get_step_info(job: str, step: str) -> List[str]:
     """获取 Step 的子步骤列表（递归）"""
     gf = _SVGGenesisAPI
@@ -416,7 +350,7 @@ def _add_svg_data(job: str, step: str, dwg: Any, dwg_g: Any,
 
     # 获取层类型
     if layer_name:
-        info = _SVGGenesisAPI.DO_INFO(
+        info = _mi.GenesisAPI.DO_INFO(
             f"-t layer -e {job}/{step}/{layer_name} -m script -d BASE_TYPE"
         )
         base = info.get('gBASE_TYPE', '')
@@ -724,7 +658,7 @@ def _handle_complex_symbol(job: str, step: str, layer_name: str,
 
 def _get_repeat(job: str, step: str) -> List[List]:
     """获取 Step 的 REPEAT 数据"""
-    info = _SVGGenesisAPI.DO_info(
+    info = _mi.GenesisAPI.DO_info(
         f'-t step -e {job}/{step} -d REPEAT', "mm"
     )
 
@@ -761,12 +695,12 @@ def _get_symbols(job: str, step: str, layer_names: list,
         return
 
     try:
-        _SVGGenesisAPI._VOF()
-        symbs = _SVGGenesisAPI.DO_info(
+        _mi.GenesisAPI._VOF()
+        symbs = _mi.GenesisAPI.DO_info(
             f"-t layer -e {job}/{step}/{layer_names[0]} "
             f"-d SYMS_HIST -o break_sr", "mm"
         )
-        _SVGGenesisAPI._VON()
+        _mi.GenesisAPI._VON()
     except Exception as e:
         print(f"[WARN] SVG symbol 数据获取失败 ({layer_names[0]}): {e}", file=sys.stderr)
         symbs = {}
@@ -797,76 +731,77 @@ def _get_symbols(job: str, step: str, layer_names: list,
         return
 
     # 创建符号并渲染
-    _SVGGenesisAPI._VOF()
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._VOF()
+    _mi.GenesisAPI._COM(
         "config_edit,name=gen_line_skip_post_hooks,value=4,mode=user"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "config_edit,name=gen_line_skip_pre_hooks,value=4,mode=user"
     )
-    _SVGGenesisAPI._VON()
+    _mi.GenesisAPI._VON()
 
-    _SVGGenesisAPI.open_step(job, step, "mm")
+    _mi.GenesisAPI.open_step(job, step, "mm")
     tmp_layer = "symbol_info_tmp+++"
-    _SVGGenesisAPI._VOF()
-    _SVGGenesisAPI._COM(f'delete_layer,layer={tmp_layer}')
-    _SVGGenesisAPI._VON()
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._VOF()
+    _mi.GenesisAPI._COM(f'delete_layer,layer={tmp_layer}')
+    _mi.GenesisAPI._VON()
+    _mi.GenesisAPI._COM(
         f'create_layer,layer={tmp_layer},context=misc,'
         f'type=signal,polarity=positive,ins_layer='
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f'affected_layer,name={tmp_layer},mode=single,affected=yes'
     )
 
     for name in filtered:
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             f"add_pad,attributes=no,x=0,y=0,"
             f"symbol={name},polarity=positive"
         )
 
         try:
-            _SVGGenesisAPI._VOF()
-            _SVGGenesisAPI._COM("sel_break")
-            syms = _SVGGenesisAPI.DO_info(
+            _mi.GenesisAPI._VOF()
+            _mi.GenesisAPI._COM("sel_break")
+            syms = _mi.GenesisAPI.DO_info(
                 f"-t layer -e {job}/{step}/{tmp_layer} -d FEAT_HIST", "mm"
             )
-            _SVGGenesisAPI._VON()
+            _mi.GenesisAPI._VON()
             symbc = syms.get('gFEAT_HISTtotal', 0)
         except Exception as e:
             print(f"[WARN] SVG symbol 统计失败 ({name}): {e}", file=sys.stderr)
             symbc = 0
 
         if (filtered[name] * symbc) > 100000:
-            _SVGGenesisAPI._COM('filter_reset,filter_name=popup')
-            _SVGGenesisAPI._COM(
+            _mi.GenesisAPI._COM('filter_reset,filter_name=popup')
+            _mi.GenesisAPI._COM(
                 "filter_set,filter_name=popup,"
                 "update_popup=no,polarity=negative"
             )
-            _SVGGenesisAPI._COM("filter_area_strt")
-            _SVGGenesisAPI._COM(
+            _mi.GenesisAPI._COM("filter_area_strt")
+            _mi.GenesisAPI._COM(
                 'filter_area_end,layer=,filter_name=popup,'
                 'operation=select,area_type=none,'
                 'inside_area=no,intersect_area=no'
             )
 
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f'affected_layer,name={tmp_layer},mode=single,affected=yes'
     )
 
     for name in filtered:
-        _SVGGenesisAPI._COM('sel_delete')
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM('sel_delete')
+        _mi.GenesisAPI._COM(
             f"add_pad,attributes=no,x=0,y=0,"
             f"symbol={name},polarity=positive"
         )
         try:
-            _SVGGenesisAPI._VOF()
-            features = _SVGGenesisAPI.INFO(
+            _mi.GenesisAPI._VOF()
+            features = _mi.GenesisAPI.INFO(
                 f'-t layer -e {job}/{step}/{tmp_layer} -d FEATURES'
             )
-            _SVGGenesisAPI._VON()
-        except Exception:
+            _mi.GenesisAPI._VON()
+        except Exception as e:
+            print(f"[WARN] get_symbols features {job}/{step}/{tmp_layer}: {e}")
             features = []
 
         if features:
@@ -875,15 +810,15 @@ def _get_symbols(job: str, step: str, layer_names: list,
             _add_svg_data(job, step, dwg, g, features, "", tmp_layer)
             _symbols_datas[layer_names[0]][name] = [uid, g, 0]
 
-    _SVGGenesisAPI._COM(f'delete_layer,layer={tmp_layer}')
-    _SVGGenesisAPI._VOF()
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(f'delete_layer,layer={tmp_layer}')
+    _mi.GenesisAPI._VOF()
+    _mi.GenesisAPI._COM(
         "config_edit,name=gen_line_skip_post_hooks,value=1,mode=user"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "config_edit,name=gen_line_skip_pre_hooks,value=1,mode=user"
     )
-    _SVGGenesisAPI._VON()
+    _mi.GenesisAPI._VON()
 
 
 # ═══════════════════════════════════════════
@@ -895,7 +830,7 @@ def _get_svg_data(job: str, step: str, layer_names: list,
                   break_sr: str = "") -> List:
     """为一个 Step 生成 SVG defs"""
     step_list = []
-    datums = _SVGGenesisAPI.DO_info(
+    datums = _mi.GenesisAPI.DO_info(
         f'-t step -e {job}/{step} -d DATUM', "mm"
     )
     transform = f"translate({0 - datums.get('gDATUMy', 0)},"
@@ -935,22 +870,22 @@ def _get_svg_data(job: str, step: str, layer_names: list,
 
     # 添加层图形数据
     if _mi.print_config[0]:
-        _SVGGenesisAPI.open_step(job, step)
-        _SVGGenesisAPI._VOF()
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI.open_step(job, step)
+        _mi.GenesisAPI._VOF()
+        _mi.GenesisAPI._COM(
             "config_edit,name=gen_line_skip_post_hooks,value=4,mode=user"
         )
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             "config_edit,name=gen_line_skip_pre_hooks,value=4,mode=user"
         )
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             "config_edit,name=edt_decompose_overlap_method,value=2,mode=user"
         )
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             "config_edit,name=edt_decompose_overlap_size,value=1,mode=user"
         )
-        _SVGGenesisAPI._VON()
-        _SVGGenesisAPI._COM('disp_off')
+        _mi.GenesisAPI._VON()
+        _mi.GenesisAPI._COM('disp_off')
 
         _color_type["col"] = 0
         for layer_name in layer_names:
@@ -965,16 +900,16 @@ def _get_svg_data(job: str, step: str, layer_names: list,
                 f'-t layer -e {job}/{step}/{pdf_layer} '
                 f'-d FEATURES{break_sr}'
             )
-            features = _SVGGenesisAPI.get_features(features_spec)
+            features = _mi.GenesisAPI.get_features(features_spec)
             _add_svg_data(job, step, dwg, dwg_step,
                           features, "", layer_name)
 
-        _SVGGenesisAPI._COM('disp_on')
+        _mi.GenesisAPI._COM('disp_on')
 
     # 添加 profile
     if profile_flag:
         features_spec = f'-t step -e {job}/{step} -d PROF'
-        profiles = _SVGGenesisAPI.get_features(features_spec)
+        profiles = _mi.GenesisAPI.get_features(features_spec)
         dwg_profile = dwg.g(id="profile", opacity="0.6")
         _add_svg_data(job, step, dwg, dwg_profile, profiles)
         dwg_step.add(dwg_profile)
@@ -988,28 +923,28 @@ def _process_layer_for_svg(job: str, step: str, layer_name: str,
                            layer_names: list, break_sr: str) -> None:
     """处理单层的 SVG 渲染流程"""
     # 创建临时层并合并
-    _SVGGenesisAPI._VOF()
-    _SVGGenesisAPI._COM(f'delete_layer,layer={pdf_layer}')
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._VOF()
+    _mi.GenesisAPI._COM(f'delete_layer,layer={pdf_layer}')
+    _mi.GenesisAPI._COM(
         f'create_layer,layer={pdf_layer},context=misc,'
         f'type=signal,polarity=positive,ins_layer='
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f"merge_layers,source_layer={layer_name},"
         f"dest_layer={pdf_layer},invert=no"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f'affected_layer,name={pdf_layer},mode=single,affected=yes'
     )
 
     # 过滤文本
-    _SVGGenesisAPI._COM('filter_reset,filter_name=popup')
-    _SVGGenesisAPI._COM("adv_filter_reset,filter_name=popup")
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM('filter_reset,filter_name=popup')
+    _mi.GenesisAPI._COM("adv_filter_reset,filter_name=popup")
+    _mi.GenesisAPI._COM(
         "filter_set,filter_name=popup,"
         "update_popup=no,feat_types=text"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "adv_filter_set,filter_name=popup,"
         "update_popup=yes,fontname=standard"
     )
@@ -1021,46 +956,46 @@ def _process_layer_for_svg(job: str, step: str, layer_name: str,
     _remove_pad_line(pdf_layer)
 
     # 处理 symbol
-    _SVGGenesisAPI.get_features(
+    _mi.GenesisAPI.get_features(
         f'-t layer -e {job}/{step}/{pdf_layer} -d FEATURES'
     )
     _get_symbol_count(job, step, pdf_layer)
 
     # 清理解剖
-    _SVGGenesisAPI._COM('affected_layer,mode=all,affected=no')
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM('affected_layer,mode=all,affected=no')
+    _mi.GenesisAPI._COM(
         f'affected_layer,name={pdf_layer},mode=single,affected=yes'
     )
-    _SVGGenesisAPI._COM("sel_design2rout,det_tol=1,con_tol=1,rad_tol=1.1")
-    _SVGGenesisAPI._COM('sel_decompose,overlap=yes')
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM("sel_design2rout,det_tol=1,con_tol=1,rad_tol=1.1")
+    _mi.GenesisAPI._COM('sel_decompose,overlap=yes')
+    _mi.GenesisAPI._COM(
         "sel_clean_surface,accuracy=1,clean_size=3,"
         "clean_mode=x_and_y,max_fold_len=5"
     )
 
-    _SVGGenesisAPI._VOF()
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._VOF()
+    _mi.GenesisAPI._COM(
         "config_edit,name=gen_line_skip_post_hooks,value=1,mode=user"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "config_edit,name=gen_line_skip_pre_hooks,value=1,mode=user"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "config_edit,name=edt_decompose_overlap_method,value=1,mode=user"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "config_edit,name=edt_decompose_overlap_size,"
         "value=1.62,mode=user"
     )
-    _SVGGenesisAPI._VON()
+    _mi.GenesisAPI._VON()
 
 
 def _modify_surface(job: str, step: str, pdf_layer: str) -> None:
     """清理表面空洞"""
-    _SVGGenesisAPI._VOF()
+    _mi.GenesisAPI._VOF()
     nnns = []
     for nnn in range(6):
-        features = _SVGGenesisAPI.get_features(
+        features = _mi.GenesisAPI.get_features(
             f'-t layer -e {job}/{step}/{pdf_layer} '
             f'-d FEATURES -o feat_index'
         )
@@ -1106,39 +1041,39 @@ def _modify_surface(job: str, step: str, pdf_layer: str) -> None:
             break
         nnns.append(min_holes)
 
-        _SVGGenesisAPI._COM("adv_filter_reset,filter_name=popup")
-        _SVGGenesisAPI._COM('filter_reset,filter_name=popup')
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM("adv_filter_reset,filter_name=popup")
+        _mi.GenesisAPI._COM('filter_reset,filter_name=popup')
+        _mi.GenesisAPI._COM(
             "filter_set,filter_name=popup,"
             "update_popup=no,polarity=positive"
         )
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             "filter_set,filter_name=popup,"
             "update_popup=no,feat_types=surface"
         )
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             f"adv_filter_set,filter_name=popup,"
             f"update_popup=yes,srf_values=yes,min_islands=0,"
             f"max_islands=1,min_holes={min_holes},"
             f"max_holes={min_holes},min_edges=0,max_edges=0"
         )
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             f"sel_ref_feat,layers={pdf_layer},use=filter,"
             f"mode=disjoint,pads_as=shape,"
             f"f_types=line\\;pad\\;surface\\;arc\\;text,"
             f"polarity=negative,include_syms=,exclude_syms="
         )
-        _SVGGenesisAPI._COM('filter_reset,filter_name=popup')
-        _SVGGenesisAPI._COM("adv_filter_reset,filter_name=popup")
-        _SVGGenesisAPI._COM('get_select_count')
-        count = int(_SVGGenesisAPI.get_cam()._io.COMANS)
+        _mi.GenesisAPI._COM('filter_reset,filter_name=popup')
+        _mi.GenesisAPI._COM("adv_filter_reset,filter_name=popup")
+        _mi.GenesisAPI._COM('get_select_count')
+        count = int(_mi.GenesisAPI._COMANS())
 
         if count < 1:
             continue
 
         _process_surface_mod(job, step, pdf_layer)
 
-    _SVGGenesisAPI._VOF()
+    _mi.GenesisAPI._VOF()
 
 
 def _process_surface_mod(job: str, step: str, pdf_layer: str) -> None:
@@ -1147,66 +1082,66 @@ def _process_surface_mod(job: str, step: str, pdf_layer: str) -> None:
     mod_a = mod + "a"
     mod_b = mod + "b"
 
-    _SVGGenesisAPI._VOF()
+    _mi.GenesisAPI._VOF()
     for layer in (mod, mod_a, mod_b):
-        _SVGGenesisAPI._COM(f'delete_layer,layer={layer}')
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(f'delete_layer,layer={layer}')
+        _mi.GenesisAPI._COM(
             f'create_layer,layer={layer},context=misc,'
             f'type=signal,polarity=positive,ins_layer='
         )
 
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f'sel_move_other,target_layer={mod},invert=no'
     )
-    _SVGGenesisAPI._COM("clear_highlight")
-    _SVGGenesisAPI._COM("sel_clear_feat")
-    _SVGGenesisAPI._COM('affected_layer,mode=all,affected=no')
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM("clear_highlight")
+    _mi.GenesisAPI._COM("sel_clear_feat")
+    _mi.GenesisAPI._COM('affected_layer,mode=all,affected=no')
+    _mi.GenesisAPI._COM(
         f'affected_layer,name={mod},mode=single,affected=yes'
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f"sel_break_isl_hole,islands_layer={mod_a},"
         f"holes_layer={mod_b}"
     )
-    status = _SVGGenesisAPI.get_cam()._io.STATUS
-    _SVGGenesisAPI._COM('affected_layer,mode=all,affected=no')
+    status = _mi.GenesisAPI._STATUS()
+    _mi.GenesisAPI._COM('affected_layer,mode=all,affected=no')
 
     if status == 0:
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             f'affected_layer,name={mod_b},mode=single,affected=yes'
         )
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             "sel_cont2pad,match_tol=1,"
             "restriction=Symmetric\\;Standard\\;Rotated,"
             "min_size=5,max_size=100,suffix=+++"
         )
-        _SVGGenesisAPI._COM('affected_layer,mode=all,affected=no')
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM('affected_layer,mode=all,affected=no')
+        _mi.GenesisAPI._COM(
             f"merge_layers,source_layer={mod_b},"
             f"dest_layer={mod_a},invert=yes"
         )
     else:
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             f"merge_layers,source_layer={mod},"
             f"dest_layer={mod_a},invert=no"
         )
 
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f"merge_layers,source_layer={pdf_layer},"
         f"dest_layer={mod_a},invert=no"
     )
-    _SVGGenesisAPI._COM(f'delete_layer,layer={pdf_layer}')
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(f'delete_layer,layer={pdf_layer}')
+    _mi.GenesisAPI._COM(
         f'create_layer,layer={pdf_layer},context=misc,'
         f'type=signal,polarity=positive,ins_layer='
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f"merge_layers,source_layer={mod_a},"
         f"dest_layer={pdf_layer},invert=no"
     )
     for layer in (mod, mod_a, mod_b, mod_b + "+++"):
-        _SVGGenesisAPI._COM(f'delete_layer,layer={layer}')
-    _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(f'delete_layer,layer={layer}')
+    _mi.GenesisAPI._COM(
         f'affected_layer,name={pdf_layer},mode=single,affected=yes'
     )
 
@@ -1233,53 +1168,54 @@ def _get_imp_dist(features: list, nnn: int) -> None:
 
 def _remove_pad_line(pdf_layer: str) -> None:
     """清理 PAD 中的线状伪影"""
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "chklist_single,action=valor_dfm_nfpr,show=no"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "chklist_cupd,chklist=valor_dfm_nfpr,nact=1,params="
         "((pp_layer=.affected)(pp_delete=Duplicate\\;Covered)"
         "(pp_work=Copper)(pp_drill=)"
         "(pp_non_drilled=No)(pp_in_selected=All)"
         "(pp_remove_mark=Remove)),mode=regular"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "chklist_run,chklist=valor_dfm_nfpr,nact=1,area=global"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "chklist_close,chklist=valor_dfm_nfpr,mode=hide"
     )
 
     # 清理覆盖线条
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "chklist_single,action=valor_dfm_nflr,show=no"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "chklist_cupd,chklist=valor_dfm_nflr,nact=1,params="
         "((pp_layer=.affected)(pp_min_line=0)(pp_max_line=20)"
         "(pp_margin=1)(pp_remove_item=Line\\;Arc)"
         "(pp_delete=Covered)(pp_work=Copper)"
         "(pp_remove_mark=Remove)),mode=regular"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "chklist_run,chklist=valor_dfm_nflr,nact=1,area=global"
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         "chklist_close,chklist=valor_dfm_nflr,mode=hide"
     )
 
-    _SVGGenesisAPI._COM("sel_design2rout,det_tol=1,con_tol=1,rad_tol=0.5")
-    _SVGGenesisAPI._COM(f'delete_layer,layer={pdf_layer}+++')
+    _mi.GenesisAPI._COM("sel_design2rout,det_tol=1,con_tol=1,rad_tol=0.5")
+    _mi.GenesisAPI._COM(f'delete_layer,layer={pdf_layer}+++')
 
 
 def _get_symbol_count(job: str, step: str,
                       pdf_layer: str) -> Dict[str, str]:
     """统计并优化高密度 symbol"""
     try:
-        info = _SVGGenesisAPI.DO_info(
+        info = _mi.GenesisAPI.DO_info(
             f'-t layer -e {job}/{step}/{pdf_layer} -d SYMS_HIST'
         )
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] calculate_limits SYMS_HIST {job}/{step}/{pdf_layer}: {e}")
         info = {}
 
     if "gSYMS_HISTsymbol" not in info:
@@ -1309,85 +1245,86 @@ def _optimize_high_density_symbols(job: str, step: str,
     rad_tol = 0.5 if _mi.print_config[11] else 0.25
     mod = f"sym_{pdf_layer}+"
 
-    _SVGGenesisAPI._COM('affected_layer,mode=all,affected=no')
-    _SVGGenesisAPI._COM(f'delete_layer,layer={mod}')
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM('affected_layer,mode=all,affected=no')
+    _mi.GenesisAPI._COM(f'delete_layer,layer={mod}')
+    _mi.GenesisAPI._COM(
         f'create_layer,layer={mod},context=misc,'
         f'type=signal,polarity=positive,ins_layer='
     )
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(
         f'affected_layer,name={mod},mode=single,affected=yes'
     )
 
     new_symbols = {}
     for name in list(symbols.keys())[:30]:  # 限制处理数量
-        _SVGGenesisAPI._COM('sel_delete')
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM('sel_delete')
+        _mi.GenesisAPI._COM(
             f"add_pad,attributes=no,x=0,y=0,"
             f"symbol={name},polarity=positive"
         )
         try:
-            _SVGGenesisAPI._COM("sel_break")
-            syms = _SVGGenesisAPI.DO_info(
+            _mi.GenesisAPI._COM("sel_break")
+            syms = _mi.GenesisAPI.DO_info(
                 f"-t layer -e {job}/{step}/{mod} -d FEAT_HIST", "mm"
             )
             symbc = syms.get('gFEAT_HISTtotal', 0)
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] get_symbol_count {job}/{step}/{mod}: {e}")
             symbc = 0
 
         if symbols[name] * symbc > 1000 and symbc > 2:
             new_name = f"new{name}-{time.time()}"
-            _SVGGenesisAPI._COM(
+            _mi.GenesisAPI._COM(
                 f'sel_contourize,accuracy={rad_tol},'
                 f'break_to_islands=yes,clean_hole_size=1.5,'
                 f'clean_hole_mode=x_or_y'
             )
-            _SVGGenesisAPI._COM(
+            _mi.GenesisAPI._COM(
                 "sel_clean_surface,accuracy=1,clean_size=3,"
                 "clean_mode=x_and_y,max_fold_len=5"
             )
-            _SVGGenesisAPI._COM('sel_decompose,overlap=yes')
-            _SVGGenesisAPI._COM(
+            _mi.GenesisAPI._COM('sel_decompose,overlap=yes')
+            _mi.GenesisAPI._COM(
                 "sel_clean_surface,accuracy=1,clean_size=3,"
                 "clean_mode=x_and_y,max_fold_len=5"
             )
-            _SVGGenesisAPI._COM(
+            _mi.GenesisAPI._COM(
                 f"sel_create_sym,symbol={new_name},"
                 f"x_datum=0,y_datum=0,delete=yes"
             )
-            if _SVGGenesisAPI.get_cam()._io.STATUS == 0:
+            if _mi.GenesisAPI._STATUS() == 0:
                 new_symbols[name] = new_name
 
-    _SVGGenesisAPI._COM(f'delete_layer,layer={mod}')
-    _SVGGenesisAPI._COM(
+    _mi.GenesisAPI._COM(f'delete_layer,layer={mod}')
+    _mi.GenesisAPI._COM(
         f'affected_layer,name={pdf_layer},mode=single,affected=yes'
     )
 
     # 替换原始 symbol
     for old_name, new_name in new_symbols.items():
-        _SVGGenesisAPI._COM('filter_reset,filter_name=popup')
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM('filter_reset,filter_name=popup')
+        _mi.GenesisAPI._COM(
             "filter_set,filter_name=popup,"
             "update_popup=no,feat_types=pad"
         )
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM(
             f"filter_set,filter_name=popup,"
             f"update_popup=no,include_syms={old_name}"
         )
-        _SVGGenesisAPI._COM('filter_area_strt')
-        _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM('filter_area_strt')
+        _mi.GenesisAPI._COM(
             'filter_area_end,layer=,filter_name=popup,'
             'operation=select,area_type=none,'
             'inside_area=no,intersect_area=no'
         )
-        _SVGGenesisAPI._COM('filter_reset,filter_name=popup')
-        _SVGGenesisAPI._COM('get_select_count')
-        if _SVGGenesisAPI.get_cam()._io.COMANS != '0':
-            _SVGGenesisAPI._COM(
+        _mi.GenesisAPI._COM('filter_reset,filter_name=popup')
+        _mi.GenesisAPI._COM('get_select_count')
+        if _mi.GenesisAPI._COMANS() != '0':
+            _mi.GenesisAPI._COM(
                 f"sel_change_sym,symbol={new_name},reset_angle=no"
             )
-        _SVGGenesisAPI._COM("clear_highlight")
-        _SVGGenesisAPI._COM("sel_clear_feat")
+        _mi.GenesisAPI._COM("clear_highlight")
+        _mi.GenesisAPI._COM("sel_clear_feat")
 
     return new_symbols
 
@@ -1413,11 +1350,12 @@ def calculate_limits(job: str, step: str,
 
         for stp in all_steps:
             try:
-                lims = _SVGGenesisAPI.DO_info(
+                lims = _mi.GenesisAPI.DO_info(
                     f'-t layer -e {job}/{stp}/{layer_name} '
                     f'-d LIMITS', "mm"
                 )
-            except Exception:
+            except Exception as e:
+                print(f"[WARN] get_layer_limits {job}/{stp}/{layer_name}: {e}")
                 lims = {}
 
             if not lims:
@@ -1775,7 +1713,7 @@ def _add_marks_block(dwg: Any, layer_name: str,
 def _get_layer_display_name(layer_name: str) -> str:
     """获取层的显示名称"""
     try:
-        info = _SVGGenesisAPI.DO_info(
+        info = _mi.GenesisAPI.DO_info(
             f'-t matrix -e {_mi.host_info.get("job_name", "")}/matrix '
             f'-m script -d ROW'
         )

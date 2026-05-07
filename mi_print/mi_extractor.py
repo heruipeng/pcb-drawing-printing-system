@@ -630,7 +630,8 @@ def get_layers(job_name: str, step: str = "") -> List[List[str]]:
         host_info["run_profile"] = gf.DO_info(
             f'-t step -e {job_name}/{step} -d PROF_LIMITS', "mm"
         )
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] get_host PROF_LIMITS {job_name}/{step}: {e}")
         host_info["run_profile"] = {}
 
     # 获取基准点
@@ -638,7 +639,8 @@ def get_layers(job_name: str, step: str = "") -> List[List[str]]:
         host_info["run_datum"] = gf.DO_info(
             f'-t step -e {job_name}/{step} -d DATUM', "mm"
         )
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] get_host DATUM {job_name}/{step}: {e}")
         host_info["run_datum"] = {}
 
     layers = gf.GFDO_INFO(f'-t matrix -e {job_name}/matrix -d ROW')
@@ -865,7 +867,8 @@ def get_notes(job_name: str, step: str, layer: str) -> List[List]:
             f'-t notes -e {job_name}/{step}/{layer}/notes -d NOTE', "mm"
         )
         GenesisAPI._VON()
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] get_note_dist DO_info: {e}")
         note_dist = {}
 
     if not note_dist:
@@ -1284,24 +1287,37 @@ def sort_notes(job_name: str, step_name: str,
     if not sort_layers:
         return []
 
-    # 执行排序
+    # 执行排序（原地修改：仅对位置变化的 note 使用 change_note 更新文本，
+    # 然后通过删除+重建最小集实现重排）
     GenesisAPI.open_step(job_name, step_name)
     result = []
     for lay in sort_layers:
         result.append(lay)
-        # 先全部删除
-        for idx in sorted(sort_layers[lay][1], reverse=True):
-            GenesisAPI._COM(f"note_delete,layer={lay},note_ind={idx}")
-        # 按新顺序重新添加
-        for ps in sort_layers[lay][0]:
+        sorts = sort_layers[lay][0]
+        # 第一步：原地更新文本（仅对文本内容变化的 note）
+        for ps in sorts:
             note = ps[5]
-            GenesisAPI._COM(
-                f"note_add,layer={lay},"
-                f"x={note[10][3] / 25.4},"
-                f"y={note[10][4] / 25.4},"
-                f"user={print_config[7]},"
-                f"text={note[10][5]}"
-            )
+            idx = ps[4]  # 原始 1-based 索引
+            new_text = note[10][5]
+            GenesisAPI.change_note(lay, idx, new_text)
+        # 第二步：对于需要重排的索引，只删除+重建位置变化的 note
+        moved = []
+        for new_pos, ps in enumerate(sorts, 1):
+            if ps[4] != new_pos:
+                moved.append((new_pos, ps[5]))
+        if moved:
+            # 删除所有 moved notes（倒序删除避免索引偏移）
+            del_indices = sorted([ps[4] for ps in sorts], reverse=True)
+            GenesisAPI.delete_note(lay, del_indices)
+            # 按新顺序重建
+            for new_pos, note in moved:
+                GenesisAPI._COM(
+                    f"note_add,layer={lay},"
+                    f"x={note[10][3] / 25.4},"
+                    f"y={note[10][4] / 25.4},"
+                    f"user={print_config[7]},"
+                    f"text={note[10][5]}"
+                )
 
     return result
 
