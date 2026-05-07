@@ -224,6 +224,32 @@ class _EmbeddedCOM:
         lines = self.INFO(args, units)
         return _parse_info_lines(lines)
 
+    def DISP_NOTES(self, job, step, layer):
+        """获取 display 模式的 notes 信息"""
+        return self.INFO(
+            f'-t notes -e {job}/{step}/{layer}/notes -m display -d NOTE'
+        )
+
+    def dbutil(self, *args):
+        """执行 dbutil 命令（兼容旧接口）"""
+        arg_str = ','.join(str(a) for a in args)
+        return self.COM(f'dbutil,{arg_str}')
+
+    @staticmethod
+    def convertToNumber(val):
+        """安全将字符串/数值转换为数字（兼容旧接口）"""
+        if val is None:
+            return 0
+        if isinstance(val, (int, float)):
+            return val
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return 0
+
 
 # ═══════════════════════════════════════════
 # 网关通信 — 协议: subprocess 管道
@@ -462,6 +488,32 @@ class _GatewayCOM:
         lines = self.INFO(args, units)
         return _parse_info_lines(lines)
 
+    def DISP_NOTES(self, job, step, layer):
+        """获取 display 模式的 notes 信息（网关模式）"""
+        return self.INFO(
+            f'-t notes -e {job}/{step}/{layer}/notes -m display -d NOTE'
+        )
+
+    def dbutil(self, *args):
+        """执行 dbutil 命令（兼容旧接口，网关模式）"""
+        arg_str = ','.join(str(a) for a in args)
+        return self.COM(f'dbutil,{arg_str}')
+
+    @staticmethod
+    def convertToNumber(val):
+        """安全将字符串/数值转换为数字（兼容旧接口）"""
+        if val is None:
+            return 0
+        if isinstance(val, (int, float)):
+            return val
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return 0
+
 
 # ═══════════════════════════════════════════
 # CAM 统一操作类
@@ -500,11 +552,8 @@ class CAM:
 
         if embedded:
             self._io = _EmbeddedCOM()
-            print(f"[CAM.__init__] Embedded mode")
         elif pid:
-            self._io = _GatewayCOM(pid)
-            print(f"[CAM.__init__] Gateway mode, pid={pid}, type={type(self._io).__name__}")
-            self._io.connect(pid)  # 自动连接 Gateway
+            self._io = _GatewayCOM(pid)  # __init__ 内部已调用 connect(pid)
         else:
             raise ValueError("必须指定 embedded=True 或 pid=进程号")
 

@@ -74,7 +74,7 @@ MYSQL_CONFIG: dict = {
     "host": "192.168.2.19",
     "port": 3306,
     "username": "root",
-    "password": "k06931!",
+    "password": os.environ.get("MI_MYSQL_PASSWORD", "k06931!"),
     "database": "project_status",
     "charset": "utf8",
 }
@@ -84,7 +84,7 @@ ORACLE_ERP_CONFIG: dict = {
     "host": "172.20.218.247",
     "port": 1521,
     "username": "zygc",
-    "password": "ZYGC@2019",
+    "password": os.environ.get("MI_ORACLE_ERP_PASSWORD", "ZYGC@2019"),
     "service_name": "topprod",
     "sid": "topprod1",
 }
@@ -94,7 +94,7 @@ ORACLE_INPLAN_CONFIG: dict = {
     "host": "192.168.2.18",
     "port": 1521,
     "username": "GETDATA",
-    "password": "InplanAdmin",
+    "password": os.environ.get("MI_ORACLE_INPLAN_PASSWORD", "InplanAdmin"),
     "service_name": "inmind.fls",
 }
 

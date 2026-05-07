@@ -416,6 +416,7 @@ if _PYQT5_AVAILABLE:
 
             self.btn_export_imp = QPushButton("导出阻抗")
             self.btn_export_imp.setFont(bold_font)
+            self.btn_export_imp.clicked.connect(self._on_export_imp)
             hbox.addWidget(self.btn_export_imp, 1)
 
             self.btn_get_orig = QPushButton("获得原稿")
@@ -830,6 +831,55 @@ if _PYQT5_AVAILABLE:
                 else "顺序已经优化!!!"
             )
 
+        def _on_export_imp(self) -> None:
+            """导出阻抗表到 Excel/CSV 文件"""
+            if not self._check_job_step():
+                return
+            self._apply_updates()
+
+            # 收集阻抗数据
+            try:
+                imp_list = _get_impedance_list_ext()
+            except Exception:
+                imp_list = []
+
+            if not imp_list:
+                self._info_dialog("没有阻抗数据可导出!")
+                return
+
+            # 选择保存路径
+            default_name = f"{self.job_name}_阻抗表.csv"
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "导出阻抗表", default_name,
+                "CSV 文件 (*.csv);;Excel 文件 (*.xls *.xlsx);;所有文件 (*.*)"
+            )
+            if not file_path:
+                return
+
+            try:
+                # 使用 csv 模块（Python 内置，无额外依赖）导出
+                import csv
+                with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
+                    writer = csv.writer(f)
+                    # 表头
+                    writer.writerow([
+                        "层名", "序号", "阻抗类型", "标记",
+                        "成品值", "原稿值", "阻抗值", "参考层", "备注"
+                    ])
+                    # 数据行
+                    for imp in imp_list:
+                        row_data = []
+                        for col in range(min(9, len(imp))):
+                            row_data.append(str(imp[col]) if imp[col] else "")
+                        writer.writerow(row_data)
+
+                self._info_dialog(
+                    f"阻抗表已导出到:\n{file_path}\n"
+                    f"共 {len(imp_list)} 条记录"
+                )
+            except Exception as e:
+                self._info_dialog(f"导出失败: {e}")
+
         def _on_get_original(self) -> None:
             """获取原稿数据"""
             if not self._check_job_step():
@@ -1199,11 +1249,51 @@ if _PYQT5_AVAILABLE:
 
         def _sync_note_changes(self, lay: str, note: List,
                                child: QTreeWidgetItem) -> None:
-            """同步单个 note 的修改"""
-            # 更新 note[5] = 标记
-            # 更新 note[6] = 成品值
-            # 更新 note[7] = 原稿值
-            pass  # 在完整 Genesis 环境中由 GenesisAPI 处理
+            """同步单个 note 的修改到 load_dict
+
+            从 UI tree item 读取最新值并更新 note 列表和 load_dict。
+            """
+            if len(note) <= 7:
+                return
+
+            # 标记 (col 5)
+            mark_text = child.text(5)
+            if mark_text:
+                note[3] = mark_text
+
+            # 成品值 (col 6)
+            finished_text = child.text(6)
+            if finished_text:
+                note[5] = finished_text
+
+            # 原稿值 (col 7)
+            original_text = child.text(7)
+            if original_text:
+                note[6] = original_text
+
+            # 备注 (col 12) — 从注册的 LineEdit 读取
+            remark_key = f"{lay}~{note[0]}~11"
+            if remark_key in self.combos_registry:
+                widget = self.combos_registry[remark_key]
+                if hasattr(widget, 'text') and callable(widget.text):
+                    new_remark = widget.text()
+                    if len(note) > 11:
+                        note[11] = new_remark
+
+            # 阻抗值 (col 8)
+            imp_text = child.text(8)
+            if imp_text:
+                if len(note) > 8:
+                    note[7] = imp_text
+
+            # 同步到 load_dict
+            if ("step_note" in self.load_dict and
+                    self.step_name in self.load_dict["step_note"] and
+                    lay in self.load_dict["step_note"][self.step_name]):
+                for sn in self.load_dict["step_note"][self.step_name][lay]:
+                    if sn[0] == note[0]:
+                        sn[:] = note[:]
+                        break
 
         # ── 工具方法 ──────────────────────────
 

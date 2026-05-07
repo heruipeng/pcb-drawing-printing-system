@@ -85,8 +85,10 @@ def get_point_line_distance(point: Tuple[float, float],
         点到直线的垂直距离（绝对值）
 
     Examples:
+        >>> round(get_point_line_distance((1, 1), ((-5, 5), (5, -5))), 4)
+        1.4142
         >>> round(get_point_line_distance((3.5, 0), ((-5, 5), (5, -5))), 4)
-        0.7071
+        2.4749
     """
     px, py = point
     (x1, y1), (x2, y2) = line
@@ -127,8 +129,8 @@ def get_p2l_distance(point: Tuple[float, float],
         点到直线的垂直距离
 
     Examples:
-        >>> round(get_p2l_distance((3.5, 0), ((-5, 5), (5, -5))), 4)
-        0.7071
+        >>> round(get_p2l_distance((1, 1), ((-5, 5), (5, -5))), 4)
+        1.4142
     """
     (x1, y1), (x2, y2) = line
 

@@ -283,6 +283,12 @@ class GenesisAPI:
                  f'name={step_name},iconic=no')
         cls._COM(f'editor_group,job={job_name},is_step=yes,name={step_name}')
         ans = cls._COMANS()
+        # 保护：如果 editor_group 返回空，无法继续
+        if not ans or not ans.strip():
+            raise RuntimeError(
+                f"editor_group 返回空结果，无法打开 step: "
+                f"job={job_name}, step={step_name}"
+            )
         cls._COM('set_group,group=' + ans)  # Note: this is AUX in original
         cls._COM('origin,x=0,y=0')
         cls._COM(f'units,type={units}')
@@ -499,31 +505,88 @@ def _gf_parse_info(info_list: List[str]) -> Dict:
     return result
 
 
+def _safe_parse_value(val: str):
+    """安全解析数值/字符串，替代 eval()
+
+    优先级:
+      1. json.loads (JSON 解析)
+      2. int/float 数值转换
+      3. 去除引号的字符串
+    """
+    val = val.strip()
+    if not val:
+        return val
+    # 尝试 JSON 解析
+    try:
+        return json.loads(val)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # 尝试数值
+    try:
+        if '.' in val or 'e' in val.lower():
+            return float(val)
+        return int(val)
+    except ValueError:
+        pass
+    # 去除单/双引号
+    if len(val) >= 2:
+        if (val[0] == val[-1] == '"') or (val[0] == val[-1] == "'"):
+            return val[1:-1]
+    return val
+
+
 def _parse_disp_info(info_list: List[str]) -> Dict:
-    """解析 display 模式 INFO 输出"""
+    """解析 display 模式 INFO 输出（安全版，不含 exec/eval）
+
+    支持的格式:
+      1. set KEY = VALUE  (单值)
+      2. set KEY = ('val1' 'val2' 'val3')  (csh 数组)
+      3. NOTE[1]:field=val,field2=val2  (数组条目)
+    """
     main = {}
     for line in info_list:
         line = line.strip()
         if not line:
             continue
-        try:
-            exec(line)
-        except SyntaxError:
-            # 处理数组格式: NOTE[1]:field=val,field2=val2
-            key = line.split('[')[0]
+
+        # 格式1: set KEY = VALUE
+        set_match = re.match(r'^set\s+(\w+)\s*=\s*(.+)$', line)
+        if set_match:
+            key = set_match.group(1)
+            val = set_match.group(2).strip()
+
+            # csh 数组: ('val1' 'val2')
+            if val.startswith('(') and ')' in val:
+                items = [m.group(1) for m in re.finditer(r"'([^']*)'", val)]
+                if not items:
+                    # 尝试双引号
+                    items = [m.group(1) for m in re.finditer(r'"([^"]*)"', val)]
+                main[key] = items
+            # 单值
+            elif val.startswith("'") and val.endswith("'"):
+                main[key] = val[1:-1]
+            elif val.startswith('"') and val.endswith('"'):
+                main[key] = val[1:-1]
+            else:
+                main[key] = _safe_parse_value(val)
+            continue
+
+        # 格式2: NOTE[1]:field=val,field2=val2
+        bracket_match = re.match(r'^(\w+)\[(\d+)\]:\s*(.+)$', line)
+        if bracket_match:
+            key = bracket_match.group(1)
+            vals_str = bracket_match.group(3)
             if key not in main:
                 main[key] = []
-            vals_str = line.split(':', 1)[1] if ':' in line else ''
             vals_parts = vals_str.split(',')
             item = {}
             for vp in vals_parts:
                 kv = vp.split('=', 1)
                 if len(kv) == 2:
-                    try:
-                        item[kv[0].strip()] = eval(kv[1])
-                    except Exception:
-                        item[kv[0].strip()] = kv[1]
+                    item[kv[0].strip()] = _safe_parse_value(kv[1])
             main[key].append(item)
+            continue
+
     return main
 
 
@@ -2244,10 +2307,10 @@ def _format_mysql_data(data: list, prefix: str) -> List[List]:
             try:
                 if isinstance(val, str) and "{" in val and "}" in val:
                     try:
-                        val = eval(val.replace("\n", "")
-                                   .replace(": null,", ": None,")
-                                   .replace(":null,", ":None,"))
-                    except Exception:
+                        # 安全 JSON 解析：将 null 保留为 JSON null 串
+                        cleaned = val.replace("\n", "").replace(": null,", ": null,").replace(":null,", ":null,")
+                        val = json.loads(cleaned)
+                    except (json.JSONDecodeError, ValueError):
                         val = {}
                 vals.append(val)
             except Exception:

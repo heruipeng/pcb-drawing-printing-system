@@ -34,15 +34,19 @@ try:
     import cx_Oracle
     _CX_ORACLE_AVAILABLE = True
 except ImportError:
-    print("[WARN] cx_Oracle 未安装，Oracle 数据库功能不可用。"
-          "请运行: pip install cx_Oracle")
+    import logging
+    _logger = logging.getLogger('mi_print.database')
+    _logger.warning("cx_Oracle 未安装，Oracle 数据库功能不可用。"
+                    "请运行: pip install cx_Oracle")
 
 try:
     import pymysql
     _PYMYSQL_AVAILABLE = True
 except ImportError:
-    print("[WARN] pymysql 未安装，MySQL 数据库功能不可用。"
-          "请运行: pip install pymysql")
+    import logging
+    _logger = logging.getLogger('mi_print.database')
+    _logger.warning("pymysql 未安装，MySQL 数据库功能不可用。"
+                    "请运行: pip install pymysql")
 
 
 # ═══════════════════════════════════════════
@@ -56,8 +60,9 @@ def rows_as_dicts(cursor) -> List[Dict]:
 
 
 def is_select_sql(sql: str) -> bool:
-    """判断 SQL 是否为 SELECT 语句"""
-    return bool(re.match(r'^(?:\s*\n*)?select', sql, re.I))
+    """判断 SQL 是否为 SELECT 语句（含 WITH/CTE）"""
+    sql_stripped = sql.strip().lstrip()
+    return bool(re.match(r'^(?:\s*\n*)?(?:select|with)\b', sql_stripped, re.I))
 
 
 # ═══════════════════════════════════════════
@@ -154,6 +159,10 @@ class OracleDB:
                 self.dbc.commit()
                 return True
         except Exception:
+            try:
+                self.dbc.rollback()
+            except Exception:
+                pass
             return False
 
     def select_dict(self, sql: str) -> List[Dict]:
@@ -173,11 +182,13 @@ class OracleDB:
     # ── 日志 ──
 
     def _log(self, msg: str) -> None:
-        """记录日志（控制台 + 可选文件）"""
+        """记录日志（控制台/logger + 可选文件）"""
+        import logging
+        _logger = logging.getLogger('mi_print.database.oracle')
         now = time.strftime('%Y-%m-%d %H:%M:%S',
                             time.localtime(time.time()))
         log_line = f"{now}: {msg}"
-        print(log_line)
+        _logger.debug(log_line)
         if self.log_file:
             try:
                 with open(self.log_file, 'a', encoding='utf-8') as f:
@@ -243,7 +254,7 @@ class MySQLDB:
         try:
             self.dbc = pymysql.connect(
                 host=host, port=port, user=username,
-                passwd=password, db=database, charset=charset
+                password=password, database=database, charset=charset
             )
             self._log(f"MySQL (Host:{host}) 连接成功", print_log)
             return True
@@ -280,6 +291,10 @@ class MySQLDB:
                 self.dbc.commit()
                 return True
         except Exception:
+            try:
+                self.dbc.rollback()
+            except Exception:
+                pass
             return False
 
     def select_dict(self, sql: str) -> List[Dict]:
@@ -300,6 +315,8 @@ class MySQLDB:
 
     def _log(self, msg: str, print_log: bool = True) -> None:
         """记录日志"""
+        import logging as _logging
+        _logger = _logging.getLogger('mi_print.database.mysql')
         if not print_log:
             return
         now = time.strftime('%Y-%m-%d %H:%M:%S',
@@ -310,11 +327,7 @@ class MySQLDB:
         else:
             log_line = f"{now}：{msg}"
 
-        try:
-            print(log_line.encode(self.log_code).decode(self.log_code,
-                                                        errors='replace'))
-        except Exception:
-            print(log_line)
+        _logger.debug(log_line)
 
         if self.log_file:
             try:
@@ -448,7 +461,9 @@ class InPlanQuery(PublicQuery):
         }
         self.db = OracleDB()
         self.dbc = None
-        print("Open--->DB")
+        import logging
+        _logger = logging.getLogger('mi_print.database.inplan')
+        _logger.debug("Open--->DB")
         self.db.connect(
             host=self._config['host'],
             port=self._config['port'],
@@ -461,7 +476,9 @@ class InPlanQuery(PublicQuery):
     def __del__(self):
         if self.dbc:
             self.db.close()
-            print("Close--->DB")
+            import logging
+            _logger = logging.getLogger('mi_print.database.inplan')
+            _logger.debug("Close--->DB")
 
     def get_impedance(self) -> List[Dict]:
         """从 InPlan 获取铜厚及层别正反数据
@@ -509,14 +526,18 @@ class MySQLQuery(MySQLDB):
 
     def __init__(self, log_file: Optional[str] = None):
         super().__init__(log_file)
-        print("mysql_open--->")
+        import logging
+        _logger = logging.getLogger('mi_print.database.mysql_query')
+        _logger.debug("mysql_open--->")
         self.connect()
 
     def __del__(self):
         try:
             if self.dbc:
                 self.close()
-                print("mysql_close--->")
+                import logging
+                _logger = logging.getLogger('mi_print.database.mysql_query')
+                _logger.debug("mysql_close--->")
         except Exception:
             pass
 
@@ -562,7 +583,7 @@ class MySQLQuery(MySQLDB):
     # ── 添加 / 更新标记 ──
 
     def add_data(self, mysql_info: dict) -> bool:
-        """新增或更新标记数据
+        """新增或更新标记数据（参数化查询，防 SQL 注入）
 
         Args:
             mysql_info: {
@@ -575,39 +596,62 @@ class MySQLQuery(MySQLDB):
         Returns:
             执行结果
         """
+        if not self.dbc:
+            return False
         existing = self.get_data(mysql_info["job_name"])
-        if existing:
-            sql = (
-                "UPDATE mi_db.drawings_marked SET "
-                f"marks_json = '{mysql_info['marks_json']}', "
-                f"mark_count = {mysql_info['mark_count']}, "
-                f"create_by = '{mysql_info['create_by']}', "
-                f"create_by_name = '{mysql_info['create_by_name']}', "
-                f"update_by = '{mysql_info['update_by']}', "
-                f"update_by_name = '{mysql_info['update_by_name']}', "
-                f"update_time = {mysql_info['update_time']} "
-                f"WHERE job_name = '{mysql_info['job_name']}'"
-            )
-            result = self.execute(sql)
-            print("update--->", result)
-        else:
-            sql = (
-                "INSERT INTO mi_db.drawings_marked "
-                "(job_name, marks_json, mark_count, "
-                " create_by, create_by_name, "
-                " update_by, update_by_name, update_time) "
-                "VALUES "
-                f"('{mysql_info['job_name']}', "
-                f"'{mysql_info['marks_json']}', "
-                f"{mysql_info['mark_count']}, "
-                f"'{mysql_info['create_by']}', "
-                f"'{mysql_info['create_by_name']}', "
-                f"'{mysql_info['update_by']}', "
-                f"'{mysql_info['update_by_name']}', "
-                f"{mysql_info['update_time']})"
-            )
-            result = self.execute(sql)
-            print("insert--->", result)
+        cursor = self.dbc.cursor()
+        try:
+            if existing:
+                sql = (
+                    "UPDATE mi_db.drawings_marked SET "
+                    "marks_json = %s, mark_count = %s, "
+                    "create_by = %s, create_by_name = %s, "
+                    "update_by = %s, update_by_name = %s, "
+                    "update_time = %s "
+                    "WHERE job_name = %s"
+                )
+                params = (
+                    mysql_info['marks_json'],
+                    mysql_info['mark_count'],
+                    mysql_info['create_by'],
+                    mysql_info['create_by_name'],
+                    mysql_info['update_by'],
+                    mysql_info['update_by_name'],
+                    mysql_info['update_time'],
+                    mysql_info['job_name'],
+                )
+                cursor.execute(sql, params)
+                self.dbc.commit()
+                print("update--->", True)
+                result = True
+            else:
+                sql = (
+                    "INSERT INTO mi_db.drawings_marked "
+                    "(job_name, marks_json, mark_count, "
+                    " create_by, create_by_name, "
+                    " update_by, update_by_name, update_time) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                )
+                params = (
+                    mysql_info['job_name'],
+                    mysql_info['marks_json'],
+                    mysql_info['mark_count'],
+                    mysql_info['create_by'],
+                    mysql_info['create_by_name'],
+                    mysql_info['update_by'],
+                    mysql_info['update_by_name'],
+                    mysql_info['update_time'],
+                )
+                cursor.execute(sql, params)
+                self.dbc.commit()
+                print("insert--->", True)
+                result = True
+        except Exception as e:
+            print(f"add_data error: {e}")
+            self.dbc.rollback()
+            result = False
+        finally:
+            cursor.close()
         return bool(result)
 
     # ── MI 制作人员查询 ──
