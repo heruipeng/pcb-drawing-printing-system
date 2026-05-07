@@ -69,13 +69,18 @@ _color_types: List[str] = ["red", "green", "blue", "yellow"]
 # Genesis 接口（SVG 专用）
 # ═══════════════════════════════════════════
 
-def _get_step_info(job: str, step: str) -> List[str]:
-    """获取 Step 的子步骤列表（递归）"""
-    gf = _SVGGenesisAPI
+def _get_step_info(job: str, step: str, visited=None, depth=0) -> List[str]:
+    """获取 Step 的子步骤列表（递归，含循环检测）"""
+    if visited is None:
+        visited = set()
+    if step in visited or depth > 10:
+        return []
+    visited.add(step)
+    gf = _mi.GenesisAPI
     steps = gf.GFDO_INFO(f'-t step -e {job}/{step} -d REPEAT')
     all_steps = list(set(steps.get('gREPEATstep', [])))
     for s in all_steps:
-        sub = _get_step_info(job, s)
+        sub = _get_step_info(job, s, visited, depth + 1)
         all_steps += sub
     return all_steps
 
