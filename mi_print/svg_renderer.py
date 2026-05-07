@@ -635,8 +635,24 @@ def _add_svg_data(job: str, step: str, dwg: Any, dwg_g: Any,
             dwg_g.add(mask_dist[key][0])
             _mask_info["tol"] += 1
 
-    # 添加图形元素
+    # 添加图形元素（分批写入，每 10000 个元素 flush 一次）
+    _BATCH_SIZE = 10000
+    _batch = []
     for item in cam_dist:
+        _batch.append(item)
+        if len(_batch) >= _BATCH_SIZE:
+            _flush_cam_batch(dwg_g, _batch, mask_dist)
+            _batch = []
+    if _batch:
+        _flush_cam_batch(dwg_g, _batch, mask_dist)
+    cam_dist.clear()
+
+    return row_count
+
+
+def _flush_cam_batch(dwg_g: Any, items: list, mask_dist: dict) -> None:
+    """将一批 cam_dist 元素写入 dwg group"""
+    for item in items:
         if len(item) == 1:
             dwg_g.add(item[0])
         elif item[2][8] in mask_dist:
@@ -662,8 +678,6 @@ def _add_svg_data(job: str, step: str, dwg: Any, dwg_g: Any,
                         center=item[1][0], r=item[1][1],
                         fill=item[1][5]
                     ))
-
-    return row_count
 
 
 def _handle_complex_symbol(job: str, step: str, layer_name: str,
@@ -753,7 +767,8 @@ def _get_symbols(job: str, step: str, layer_names: list,
             f"-d SYMS_HIST -o break_sr", "mm"
         )
         _SVGGenesisAPI._VON()
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] SVG symbol 数据获取失败 ({layer_names[0]}): {e}", file=sys.stderr)
         symbs = {}
 
     if not symbs:
@@ -818,7 +833,8 @@ def _get_symbols(job: str, step: str, layer_names: list,
             )
             _SVGGenesisAPI._VON()
             symbc = syms.get('gFEAT_HISTtotal', 0)
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] SVG symbol 统计失败 ({name}): {e}", file=sys.stderr)
             symbc = 0
 
         if (filtered[name] * symbc) > 100000:
@@ -1453,6 +1469,7 @@ class SVGGenerator:
         _all_steps_dist = {}
         _symbols_datas = {}
         _mask_info = {"tol": 0}
+        _All_LIMITS.clear()
 
     def generate(self, layers: List[str],
                  output_dir: str = "",
@@ -1672,8 +1689,8 @@ class SVGGenerator:
         pdf_path = svg_path.replace('.svg', '.pdf')
         try:
             cairosvg.svg2pdf(url=svg_path, write_to=pdf_path)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] SVG → PDF 转换失败 ({os.path.basename(svg_path)}): {e}", file=sys.stderr)
 
 
 # ═══════════════════════════════════════════
@@ -1762,7 +1779,8 @@ def _get_layer_display_name(layer_name: str) -> str:
             f'-t matrix -e {_mi.host_info.get("job_name", "")}/matrix '
             f'-m script -d ROW'
         )
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] PDF 层名获取失败 ({layer_name}): {e}", file=sys.stderr)
         return layer_name
 
     names = info.get('gROWname', [])
@@ -1818,8 +1836,8 @@ def _get_notes_data(layer_name: str,
                  note[9]]                     # 备注
                 for note in layer_notes
             ]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] 标记参数解析失败 ({layer_name}): {e}", file=sys.stderr)
 
     # 排序标记
     tmp_marklist = []

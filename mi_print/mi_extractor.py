@@ -74,7 +74,10 @@ def read_json(json_file: str) -> Dict:
     try:
         with open(json_file, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, PermissionError):
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, PermissionError) as e:
+        print(f"[ERROR] JSON 读取失败 ({json_file}): {e}", file=sys.stderr)
         return {}
 
 
@@ -89,12 +92,15 @@ def save_json(json_file: str, data: Dict) -> None:
         os.makedirs(os.path.dirname(json_file), exist_ok=True)
         with open(json_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ERROR] 保存失败: {json_file}: {e}", file=sys.stderr)
 
 
 def get_json_name(job_name: str) -> str:
     """获取料号的 job_notes.json 路径"""
+    unsafe = os.path.normpath(str(job_name))
+    if '..' in unsafe or unsafe.startswith('/'):
+        raise ValueError(f"Invalid job_name: {job_name}")
     return os.path.join(
         config.GENESIS_DIR, "fw", "jobs",
         str(job_name), "user", "job_notes.json"
@@ -112,6 +118,11 @@ def get_host(job_name: str = "") -> None:
         job_name: 当前料号名
     """
     global host_info
+
+    # 确保 GENESIS_DIR 环境变量存在
+    if not config.GENESIS_DIR:
+        import warnings
+        warnings.warn("GENESIS_DIR 未设置，部分功能可能不可用")
 
     # Windows 用户
     try:
@@ -327,8 +338,8 @@ class GenesisAPI:
 
         try:
             os.makedirs(paths, exist_ok=True)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] 目录创建失败: {e}", file=sys.stderr)
 
         cls._VOF()
         cls._COM(f"config_edit,name=gen_line_skip_post_hooks,value=4,mode=user")
@@ -474,7 +485,8 @@ class GenesisAPI:
             cls._VOF()
             lines = cls.INFO(features_spec)
             cls._VON()
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] get_features 失败: {e}", file=sys.stderr)
             lines = []
         return lines
 
@@ -1676,7 +1688,8 @@ def get_impedance_table(inplan_conn=None) -> List[Dict]:
 
     try:
         imp_info = inplan_conn.get_impedance()
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] 连接失败,跳过 InPlan 阻抗表查询: {e}", file=sys.stderr)
         imp_info = []
 
     # 构建阻抗表到 print_config[8]
@@ -1913,6 +1926,72 @@ def get_impedance_list() -> List[List]:
 # 线信息汇总
 # ═══════════════════════════════════════════
 
+def _parse_note_vals(text: str) -> list:
+    """解析 note[4] 文本为 float 列表"""
+    vals = []
+    for p in text.split("/"):
+        try:
+            vals.append(float(p))
+        except ValueError:
+            pass
+    return vals
+
+
+def _extract_note_parts(text: str) -> list:
+    """从 note[4] 提取首尾数值（用于 BGA/SMD 分析）"""
+    parts = text.replace("*", "/").split("/")
+    results = []
+    for idx in (0, -1):
+        try:
+            results.append(float(parts[idx]))
+        except (ValueError, IndexError):
+            pass
+    return results
+
+
+def _handle_l1(note_text: str, result: dict, lay: str) -> None:
+    """sel5==1: 线宽进[0], 线距进[1]"""
+    vals = _parse_note_vals(note_text)
+    if vals:
+        result[lay][0].extend(vals[0:1])
+        result[lay][1].extend(vals[1:])
+
+
+def _handle_l2(note_text: str, result: dict, lay: str) -> None:
+    """sel5==2: 全部冲线距[1]"""
+    vals = _parse_note_vals(note_text)
+    if vals:
+        result[lay][1].extend(vals)
+
+
+def _handle_l3(note_text: str, result: dict, lay: str,
+               target: str) -> None:
+    """sel5==3-6: 提取首尾值到指定目标"""
+    for v in _extract_note_parts(note_text):
+        result[target][0].append(v)
+
+
+# 查找表: (sel[5], layer_type) → (target_key, handler_fn)
+_LINE_INFO_LOOKUP = {
+    (1, ("IN", "LL")): lambda note_text, result, lay:
+        _handle_l1(note_text, result, lay),
+    (2, ("IN", "LL")): lambda note_text, result, lay:
+        _handle_l2(note_text, result, lay),
+    (3, "LL"): lambda note_text, result, lay:
+        _handle_l3(note_text, result, lay, "bga_min_etch"),
+    (3, "MM"): lambda note_text, result, lay:
+        _handle_l3(note_text, result, lay, "bga_min_mask"),
+    (4, "LL"): lambda note_text, result, lay:
+        _handle_l3(note_text, result, lay, "smd_min_etch"),
+    (4, "MM"): lambda note_text, result, lay:
+        _handle_l3(note_text, result, lay, "smd_min_mask"),
+    (5, ("LL", "MM")): lambda note_text, result, lay:
+        _handle_l3(note_text, result, lay, "bga_min_pitch"),
+    (6, ("LL", "MM")): lambda note_text, result, lay:
+        _handle_l3(note_text, result, lay, "smd_min_pitch"),
+}
+
+
 def get_line_info() -> Dict[str, str]:
     """从 load_dict_all 计算每条线的最小线宽/线距"""
     global line_info_all
@@ -1944,85 +2023,17 @@ def get_line_info() -> Dict[str, str]:
                 except KeyError:
                     continue
 
-                parts = note[4].split("/")
-                vals = []
-                for p in parts:
-                    try:
-                        vals.append(float(p))
-                    except ValueError:
-                        pass
-
-                if sel[5] == 1 and layer_type in ("IN", "LL"):
-                    result[lay][0] += vals[0:1]
-                    result[lay][1] += vals[1:]
-                elif sel[5] == 2 and layer_type in ("IN", "LL"):
-                    result[lay][1] += vals
-                elif sel[5] == 3 and layer_type == "LL":
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[0])
-                        result["bga_min_etch"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[-1])
-                        result["bga_min_etch"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                elif sel[5] == 3 and layer_type == "MM":
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[0])
-                        result["bga_min_mask"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[-1])
-                        result["bga_min_mask"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                elif sel[5] == 4 and layer_type == "LL":
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[0])
-                        result["smd_min_etch"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[-1])
-                        result["smd_min_etch"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                elif sel[5] == 4 and layer_type == "MM":
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[0])
-                        result["smd_min_mask"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[-1])
-                        result["smd_min_mask"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                elif sel[5] == 5 and layer_type in ("LL", "MM"):
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[0])
-                        result["bga_min_pitch"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[-1])
-                        result["bga_min_pitch"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                elif sel[5] == 6 and layer_type in ("LL", "MM"):
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[0])
-                        result["smd_min_pitch"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
-                    try:
-                        v = float(note[4].replace("*", "/").split("/")[-1])
-                        result["smd_min_pitch"][0].append(v)
-                    except (ValueError, IndexError):
-                        pass
+                # 查找表分发
+                # 支持多类型匹配: ("IN", "LL") 或单类型 "LL"
+                for (sid, ltype), handler in _LINE_INFO_LOOKUP.items():
+                    if sel[5] == sid:
+                        if isinstance(ltype, tuple):
+                            if layer_type in ltype:
+                                handler(note[4], result, lay)
+                                break
+                        elif layer_type == ltype:
+                            handler(note[4], result, lay)
+                            break
 
     # 汇总
     line_info = {}
@@ -2223,8 +2234,10 @@ def _find_genesis_old_data(job_name: str) -> List[List]:
     log_file = get_json_name(job_name).replace(
         "/job_notes.json", "/notes_mysql.log"
     )
+    # 使用 gbk 编码：Genesis 旧版日志文件在 Windows 中文环境下生成
     try:
-        lines = open(log_file, 'r', encoding='gbk').readlines()
+        with open(log_file, 'r', encoding='gbk') as f:
+            lines = f.readlines()
     except FileNotFoundError:
         return []
 
@@ -2332,8 +2345,8 @@ def _format_mysql_data(data: list, prefix: str) -> List[List]:
             try:
                 if isinstance(val, str) and "{" in val and "}" in val:
                     try:
-                        # 安全 JSON 解析：将 null 保留为 JSON null 串
-                        cleaned = val.replace("\n", "").replace(": null,", ": null,").replace(":null,", ":null,")
+                        # 安全 JSON 解析（json.loads 原生支持 null）
+                        cleaned = val.replace("\n", "")
                         val = json.loads(cleaned)
                     except (json.JSONDecodeError, ValueError):
                         val = {}
@@ -2568,6 +2581,9 @@ def restore_saved_notes(load_dict: Dict, job_name: str,
         # 先清除旧标记
         GenesisAPI.delete_note_all(layer)
         for note_data in load_dict["step_note"][step_name][layer]:
+            # 长度检查：note_data 至少需要 6 个元素 (0-5) 用于坐标和文本
+            if len(note_data) < 6:
+                continue
             x = (note_data[3] + print_config[13][0]) / 25.4
             y = (note_data[4] + print_config[13][1]) / 25.4
             GenesisAPI.add_note(layer, x, y, note_data[5])

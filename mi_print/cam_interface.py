@@ -109,6 +109,27 @@ def _parse_info_lines(info_list):
     return result
 
 
+def _convert_to_number(val):
+    """安全将字符串/数值转换为数字（两种模式共用）
+
+    与原始 genClasses.convertToNumber 行为一致：
+    失败时返回原值而非 0。
+    """
+    if val is None:
+        return val
+    if isinstance(val, (int, float)):
+        return val
+    convert_value = val
+    try:
+        convert_value = int(val)
+    except (ValueError, TypeError):
+        try:
+            convert_value = float(val)
+        except (ValueError, TypeError):
+            pass  # 保留原字符串值
+    return convert_value
+
+
 # ═══════════════════════════════════════════
 # 嵌入式通信 — 协议: STDOUT/STDIN
 # ═══════════════════════════════════════════
@@ -252,24 +273,8 @@ class _EmbeddedCOM:
 
     @staticmethod
     def convertToNumber(val):
-        """安全将字符串/数值转换为数字（兼容旧接口）
-
-        与原始 genClasses.convertToNumber 行为一致：
-        失败时返回原值而非 0。
-        """
-        if val is None:
-            return val
-        if isinstance(val, (int, float)):
-            return val
-        convert_value = val
-        try:
-            convert_value = int(val)
-        except (ValueError, TypeError):
-            try:
-                convert_value = float(val)
-            except (ValueError, TypeError):
-                pass  # 保留原字符串值
-        return convert_value
+        """安全将字符串/数值转换为数字（别名，委托给模块级函数）"""
+        return _convert_to_number(val)
 
 
 # ═══════════════════════════════════════════
@@ -400,7 +405,9 @@ class _GatewayCOM:
         if IS_WINDOWS:
             gw_exe += '.exe'
         address = f'%{self.pid_num}@{self.host}'
-        os.system(f'{gw_exe} {address} "{command}" > {out_file}')
+        with open(out_file, 'w') as f:
+            subprocess.run([gw_exe, address, command],
+                           stdout=f, stderr=subprocess.DEVNULL)
         with open(out_file, 'r') as f:
             result = f.read().strip()
         os.unlink(out_file)
@@ -483,12 +490,12 @@ class _GatewayCOM:
         return self.COM('su_off')
 
     def VOF(self):
-        """关闭视觉更新（网关模式下不适用，no-op）"""
-        pass
+        """关闭视觉更新"""
+        self.COM('vof')
 
     def VON(self):
-        """恢复视觉更新（网关模式下不适用，no-op）"""
-        pass
+        """恢复视觉更新"""
+        self.COM('von')
 
     def INFO(self, args, units='mm'):
         """
@@ -528,24 +535,8 @@ class _GatewayCOM:
 
     @staticmethod
     def convertToNumber(val):
-        """安全将字符串/数值转换为数字（兼容旧接口）
-
-        与原始 genClasses.convertToNumber 行为一致：
-        失败时返回原值而非 0。
-        """
-        if val is None:
-            return val
-        if isinstance(val, (int, float)):
-            return val
-        convert_value = val
-        try:
-            convert_value = int(val)
-        except (ValueError, TypeError):
-            try:
-                convert_value = float(val)
-            except (ValueError, TypeError):
-                pass  # 保留原字符串值
-        return convert_value
+        """安全将字符串/数值转换为数字（别名，委托给模块级函数）"""
+        return _convert_to_number(val)
 
 
 # ═══════════════════════════════════════════
@@ -785,6 +776,90 @@ class CAM:
         )
         # 空层只有一行 "### Layer - xxx features data ###"
         return len(lines) > 1
+
+    # ─── 层属性操作 ───
+
+    def get_layer_type(self, job: str, layer: str) -> str:
+        """获取层类型（signal / power_ground / solder_mask 等）
+
+        Args:
+            job:   料号名
+            layer: 层名
+
+        Returns:
+            层类型字符串，查询失败返回空字符串
+        """
+        info = self.DO_INFO(
+            f'-t layer -e {job}/{self.step}/{layer} -m script -d BASE_TYPE'
+        )
+        return str(info.get('gBASE_TYPE', ''))
+
+    def get_layer_context(self, job: str, layer: str) -> str:
+        """获取层上下文（board / misc 等）
+
+        Args:
+            job:   料号名
+            layer: 层名
+
+        Returns:
+            层上下文字符串，查询失败返回空字符串
+        """
+        info = self.DO_INFO(
+            f'-t layer -e {job}/{self.step}/{layer} -m script -d CONTEXT'
+        )
+        return str(info.get('gCONTEXT', ''))
+
+    def set_layer_context(self, job: str, layer: str, context: str) -> int:
+        """设置层上下文
+
+        Args:
+            job:     料号名
+            layer:   层名
+            context: 上下文类型（如 board, misc）
+
+        Returns:
+            COM 命令状态码
+        """
+        return self._io.COM(
+            f'set_layer_context,job={job},layer={layer},context={context}'
+        )
+
+    def get_attribute(self, job: str, step: str,
+                      entity: str, attr_name: str) -> str:
+        """获取实体属性（gATTR）
+
+        Args:
+            job:       料号名
+            step:      Step 名
+            entity:    实体路径（如 layer_name）
+            attr_name: 属性名
+
+        Returns:
+            属性值字符串，查询失败返回空字符串
+        """
+        info = self.DO_INFO(
+            f'-t attribute -e {job}/{step}/{entity} -d ATTR'
+        )
+        return str(info.get(f'gATTR_{attr_name}', ''))
+
+    def set_attribute(self, job: str, step: str,
+                      entity: str, attr_name: str, value: str) -> int:
+        """设置实体属性
+
+        Args:
+            job:       料号名
+            step:      Step 名
+            entity:    实体路径
+            attr_name: 属性名
+            value:     属性值
+
+        Returns:
+            COM 命令状态码
+        """
+        return self._io.COM(
+            f'set_attribute,job={job},step={step},'
+            f'entity={entity},attribute={attr_name},value={value}'
+        )
 
     def change_units(self, units):
         """改变单位（mm/inch）— 同步 self._units 供 DO_INFO 使用"""
@@ -1305,8 +1380,12 @@ if __name__ == '__main__':
     if '--pid' in sys.argv:
         # Gateway 模式：指定 PID
         pid_idx = sys.argv.index('--pid')
+        if pid_idx + 1 >= len(sys.argv):
+            print('❌ --pid 需要参数: --pid <进程号>', file=sys.stderr)
+            sys.exit(1)
         pid = int(sys.argv[pid_idx + 1])
-        job = sys.argv[sys.argv.index('--job') + 1] if '--job' in sys.argv else None
+        job_idx = sys.argv.index('--job') if '--job' in sys.argv else -1
+        job = sys.argv[job_idx + 1] if job_idx >= 0 and job_idx + 1 < len(sys.argv) else None
         print(f'🔗 Gateway 模式 → PID:{pid}')
         cam = CAM(embedded=False, pid=pid, job=job)
         print(f'   用户: {cam.get_user()}')

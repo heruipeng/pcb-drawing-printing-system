@@ -70,31 +70,46 @@ def get_json_path(job_name: str) -> str:
 # ═══════════════════════════════════════════
 
 # MySQL 配置（工程管理系统）
+_mysql_pwd = os.environ.get("MI_MYSQL_PASSWORD", "")
+if not _mysql_pwd:
+    import sys
+    print("[WARN] MI_MYSQL_PASSWORD 环境变量未设置，MySQL连接可能失败", file=sys.stderr)
+
 MYSQL_CONFIG: dict = {
     "host": "192.168.2.19",
     "port": 3306,
     "username": "root",
-    "password": os.environ.get("MI_MYSQL_PASSWORD", "k06931!"),
+    "password": _mysql_pwd,
     "database": "project_status",
     "charset": "utf8",
 }
 
 # Oracle ERP 配置（Tiptop ERP）
+_erp_pwd = os.environ.get("MI_ORACLE_ERP_PASSWORD", "")
+if not _erp_pwd:
+    import sys
+    print("[WARN] MI_ORACLE_ERP_PASSWORD 环境变量未设置，Oracle ERP连接可能失败", file=sys.stderr)
+
 ORACLE_ERP_CONFIG: dict = {
     "host": "172.20.218.247",
     "port": 1521,
     "username": "zygc",
-    "password": os.environ.get("MI_ORACLE_ERP_PASSWORD", "ZYGC@2019"),
+    "password": _erp_pwd,
     "service_name": "topprod",
     "sid": "topprod1",
 }
 
 # Oracle InPlan 配置
+_inplan_pwd = os.environ.get("MI_ORACLE_INPLAN_PASSWORD", "")
+if not _inplan_pwd:
+    import sys
+    print("[WARN] MI_ORACLE_INPLAN_PASSWORD 环境变量未设置，Oracle InPlan连接可能失败", file=sys.stderr)
+
 ORACLE_INPLAN_CONFIG: dict = {
     "host": "192.168.2.18",
     "port": 1521,
     "username": "GETDATA",
-    "password": os.environ.get("MI_ORACLE_INPLAN_PASSWORD", "InplanAdmin"),
+    "password": _inplan_pwd,
     "service_name": "inmind.fls",
 }
 

@@ -54,16 +54,9 @@ from . import svg_renderer as _svg
 
 _PRINT_CONFIG = _mi.print_config      # 引用全局打印配置
 _HOST_INFO = _mi.host_info            # 引用全局主机信息
-_LOAD_DICT = _mi.load_dict_all        # 引用全局加载字典
 
 # 阻抗表（GUI 层维护）
 _IMPEDANCE_TABLE: Dict[str, Any] = {}
-
-# 线信息
-_LINE_INFO: Dict[str, str] = {}
-
-# 阻抗列表
-_ZK_LIST: List[List] = []
 
 
 # ═══════════════════════════════════════════
@@ -95,7 +88,7 @@ def _get_note_all_ext(job_name: str, step: str, layer: str,
 def _add_note_ext(job_name: str, step: str, layer: str) -> None:
     """向层添加一条制作指示"""
     try:
-        _mi.GenesisAPI.add_note(job_name, step, layer)
+        _mi.GenesisAPI.add_note(layer)
     except Exception as e:
         print(f"[WARN] 添加指示失败: {e}")
 
@@ -104,7 +97,7 @@ def _delete_note_ext(job_name: str, step: str, layer: str,
                      indexes: List[int]) -> None:
     """删除标记"""
     try:
-        _mi.GenesisAPI.delete_note(job_name, step, layer, indexes)
+        _mi.GenesisAPI.delete_note(layer, indexes)
     except Exception as e:
         print(f"[WARN] 删除标记失败: {e}")
 
@@ -730,13 +723,9 @@ if _PYQT5_AVAILABLE:
                     _delete_note_ext(self.job_name, self.step_name, lay, indexes[::-1])
                     self._refresh_layer_display([lay])
                     self._apply_updates()
-                    self._refresh_layer_display([lay])
-                    self._apply_updates()
 
             elif text == "增加制作指示":
                 _add_note_ext(self.job_name, self.step_name, lay)
-                self._refresh_layer_display([lay])
-                self._apply_updates()
                 self._refresh_layer_display([lay])
                 self._apply_updates()
 
@@ -756,8 +745,6 @@ if _PYQT5_AVAILABLE:
                 else:
                     _view_note_ext(self.job_name, self.step_name,
                                    lay, 0, 0, "", 0)
-                self._refresh_layer_display()
-                self._apply_updates()
                 self._refresh_layer_display()
                 self._apply_updates()
 
@@ -792,7 +779,6 @@ if _PYQT5_AVAILABLE:
             _mi.print_config[1] = self.combo_unit.currentText()
             self._apply_updates()
             self._refresh_layer_display()
-            self._apply_updates()
 
         def _on_sort_notes(self) -> None:
             """优化标记顺序"""
@@ -893,8 +879,6 @@ if _PYQT5_AVAILABLE:
             """保存所有修改"""
             if not self._check_job_step():
                 return
-            self._apply_updates()
-            self._refresh_layer_display()
             self._apply_updates()
             self._save_check_states()
             self._build_layer_tree()

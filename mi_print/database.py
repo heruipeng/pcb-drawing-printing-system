@@ -65,6 +65,42 @@ def is_select_sql(sql: str) -> bool:
     return bool(re.match(r'^(?:\s*\n*)?(?:select|with)\b', sql_stripped, re.I))
 
 
+def _write_log(log_file: Optional[str], msg: str, delimiter: str = ':',
+               log_code: str = 'utf-8', print_log: bool = True,
+               logger_name: str = 'mi_print.database') -> None:
+    """模块级日志写入函数（OracleDB 和 MySQLDB 共用）
+
+    Args:
+        log_file:    日志文件路径（None 则只写 logger）
+        msg:         日志消息
+        delimiter:   时间戳与消息之间的分隔符
+        log_code:    文件编码
+        print_log:   是否实际写入
+        logger_name: logger 名称
+    """
+    import logging
+    _logger = logging.getLogger(logger_name)
+    if not print_log:
+        return
+    now = time.strftime('%Y-%m-%d %H:%M:%S',
+                        time.localtime(time.time()))
+    # 纯换行不添加时间戳
+    if re.match(r'^\n(?:\n+)?$', msg):
+        log_line = msg
+    else:
+        log_line = f"{now}{delimiter}{msg}"
+
+    _logger.debug(log_line)
+
+    if log_file:
+        try:
+            with open(log_file, 'a', encoding=log_code,
+                      errors='replace') as f:
+                f.write(log_line + '\n')
+        except Exception:
+            pass
+
+
 # ═══════════════════════════════════════════
 # Oracle 连接器
 # ═══════════════════════════════════════════
@@ -138,15 +174,15 @@ class OracleDB:
             try:
                 self.dbc.close()
                 self._log("Oracle 连接已关闭")
-            except Exception:
-                pass
+            except Exception as e:
+                self._log(f"Oracle 关闭连接异常: {e}")
             finally:
                 self.dbc = None
 
     # ── SQL 执行 ──
 
     def execute(self, sql: str) -> Optional[List[Tuple]]:
-        """执行 SQL，SELECT 返回结果列表，其他返回 True/False"""
+        """执行 SQL，SELECT 返回结果列表（失败返回 None），其他返回 True/False"""
         if not self.dbc:
             return None
         cursor = self.dbc.cursor()
@@ -163,6 +199,8 @@ class OracleDB:
                 self.dbc.rollback()
             except Exception:
                 pass
+            if is_select_sql(sql):
+                return None  # 查询失败返回 None，区分于空结果 []
             return False
 
     def select_dict(self, sql: str) -> List[Dict]:
@@ -183,18 +221,8 @@ class OracleDB:
 
     def _log(self, msg: str) -> None:
         """记录日志（控制台/logger + 可选文件）"""
-        import logging
-        _logger = logging.getLogger('mi_print.database.oracle')
-        now = time.strftime('%Y-%m-%d %H:%M:%S',
-                            time.localtime(time.time()))
-        log_line = f"{now}: {msg}"
-        _logger.debug(log_line)
-        if self.log_file:
-            try:
-                with open(self.log_file, 'a', encoding='utf-8') as f:
-                    f.write(log_line + '\n')
-            except Exception:
-                pass
+        _write_log(self.log_file, msg, delimiter=':',
+                   logger_name='mi_print.database.oracle')
 
 
 # ═══════════════════════════════════════════
@@ -215,12 +243,12 @@ class MySQLDB:
         >>> db.close()
     """
 
-    # 默认配置
+    # 默认配置（密码从环境变量读取，不硬编码）
     DEFAULT_CONFIG = {
         'host': "192.168.2.19",
         'port': 3306,
         'username': "root",
-        'password': "k06931!",
+        'password': os.environ.get("MI_MYSQL_PASSWORD", ""),
         'database': "project_status",
         'charset': "utf8",
     }
@@ -268,15 +296,15 @@ class MySQLDB:
         if self.dbc:
             try:
                 self.dbc.close()
-            except Exception:
-                pass
+            except Exception as e:
+                self._log(f"MySQL 关闭连接异常: {e}", print_log=False)
             finally:
                 self.dbc = None
 
     # ── SQL 执行 ──
 
     def execute(self, sql: str) -> Optional[Any]:
-        """执行 SQL"""
+        """执行 SQL，SELECT 返回结果列表（失败返回 None），其他返回 True/False"""
         if not self.dbc:
             return None
         cursor = self.dbc.cursor()
@@ -295,15 +323,20 @@ class MySQLDB:
                 self.dbc.rollback()
             except Exception:
                 pass
+            if is_select_sql(sql):
+                return None  # 查询失败返回 None，区分于空结果 []
             return False
 
-    def select_dict(self, sql: str) -> List[Dict]:
+    def select_dict(self, sql: str, params: Optional[list] = None) -> List[Dict]:
         """SELECT 返回字典列表"""
         if not self.dbc:
             return []
         cursor = self.dbc.cursor(cursor=pymysql.cursors.DictCursor)
         try:
-            cursor.execute(sql)
+            if params:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql)
             self._log(sql)
             if is_select_sql(sql):
                 return cursor.fetchall()
@@ -315,27 +348,10 @@ class MySQLDB:
 
     def _log(self, msg: str, print_log: bool = True) -> None:
         """记录日志"""
-        import logging as _logging
-        _logger = _logging.getLogger('mi_print.database.mysql')
-        if not print_log:
-            return
-        now = time.strftime('%Y-%m-%d %H:%M:%S',
-                            time.localtime(time.time()))
-        # 纯换行不添加时间戳
-        if re.match(r'^\n(?:\n+)?$', msg):
-            log_line = msg
-        else:
-            log_line = f"{now}：{msg}"
-
-        _logger.debug(log_line)
-
-        if self.log_file:
-            try:
-                with open(self.log_file, 'a', encoding=self.log_code,
-                          errors='replace') as f:
-                    f.write(log_line + '\n')
-            except Exception:
-                pass
+        _write_log(self.log_file, msg, delimiter='：',
+                   log_code=self.log_code,
+                   print_log=print_log,
+                   logger_name='mi_print.database.mysql')
 
 
 # ═══════════════════════════════════════════
@@ -389,7 +405,7 @@ class ERPQuery(PublicQuery):
             'host': "172.20.218.247",
             'port': 1521,
             'username': "zygc",
-            'password': "ZYGC@2019",
+            'password': os.environ.get("MI_ORACLE_ERP_PASSWORD", ""),
             'service_name': "topprod",
             'sid': "topprod1",
         }
@@ -428,9 +444,15 @@ class ERPQuery(PublicQuery):
         sql = (
             "SELECT TC_AAC01 AS JOB_NAME, TC_AAC05 AS SITE_ "
             "FROM TC_AAC_FILE "
-            f"WHERE TC_AAC01 = '{self.JOB_SQL}'"
+            "WHERE TC_AAC01 = :1"
         )
-        query_result = self.db.select_dict(sql)
+        cursor = self.db.dbc.cursor()
+        try:
+            cursor.execute(sql, [self.JOB_SQL])
+            query_result = rows_as_dicts(cursor)
+            cursor.close()
+        except Exception:
+            query_result = []
         if not query_result:
             return ""
         site_code = query_result[0].get('SITE_', '')
@@ -456,7 +478,7 @@ class InPlanQuery(PublicQuery):
             'host': "192.168.2.18",
             'port': 1521,
             'username': "GETDATA",
-            'password': "InplanAdmin",
+            'password': os.environ.get("MI_ORACLE_INPLAN_PASSWORD", ""),
             'service_name': "inmind.fls",
         }
         self.db = OracleDB()
@@ -498,9 +520,18 @@ class InPlanQuery(PublicQuery):
             "  i.COMPENSATE_VALUE_, i.CALCULATED_TRACE_WIDTH, "
             "  i.IS_SYMMETRY_IMP_ "
             "FROM VGT.RPT_JOB_IMPEDANCE_CONST_LIST i "
-            f"WHERE i.job_name='{self.JOB_SQL}'"
+            "WHERE i.job_name=:1"
         )
-        return self.db.select_dict(sql)
+        if not self.db.dbc:
+            return []
+        cursor = self.db.dbc.cursor()
+        try:
+            cursor.execute(sql, [self.JOB_SQL])
+            result = rows_as_dicts(cursor)
+            cursor.close()
+            return result
+        except Exception:
+            return []
 
     def job_exists(self) -> bool:
         """检查料号是否在 InPlan 中"""
@@ -508,9 +539,18 @@ class InPlanQuery(PublicQuery):
             "SELECT I.ITEM_NAME AS JOB_NAME "
             "FROM VGT.PUBLIC_ITEMS I "
             "WHERE I.ITEM_TYPE = 2 "
-            f"AND I.ITEM_NAME = '{self.JOB_SQL}'"
+            "AND I.ITEM_NAME = :1"
         )
-        result = self.db.select_dict(sql)
+        if not self.db.dbc:
+            return False
+        cursor = self.db.dbc.cursor()
+        try:
+            cursor.execute(sql, [self.JOB_SQL])
+            result = rows_as_dicts(cursor)
+            cursor.close()
+            return len(result) > 0
+        except Exception:
+            return False
         return len(result) > 0
 
 
@@ -526,6 +566,7 @@ class MySQLQuery(MySQLDB):
 
     def __init__(self, log_file: Optional[str] = None):
         super().__init__(log_file)
+        self.dbc = None  # 初始化属性，防止 __del__ 报错
         import logging
         _logger = logging.getLogger('mi_print.database.mysql_query')
         _logger.debug("mysql_open--->")
@@ -533,13 +574,13 @@ class MySQLQuery(MySQLDB):
 
     def __del__(self):
         try:
-            if self.dbc:
+            if hasattr(self, 'dbc') and self.dbc:
                 self.close()
                 import logging
                 _logger = logging.getLogger('mi_print.database.mysql_query')
                 _logger.debug("mysql_close--->")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] MySQLQuery 析构异常: {e}", file=sys.stderr)
 
     # ── 历史标记查询 ──
 
@@ -556,15 +597,15 @@ class MySQLQuery(MySQLDB):
             return []
 
         job_sql = job_name[0:13].upper()
-        like_sql = "="
+        use_like = "*" in job_sql
 
-        if "*" in job_sql:
+        if use_like:
             job_sql = job_sql.replace("**", "*").replace("**", "*")
             job_sql = job_sql.replace("*", "%%")
-            like_sql = "like"
         elif len(job_sql) < 13:
             return []
 
+        operator = "LIKE" if use_like else "="
         sql = (
             "SELECT dm.job_name, "
             "  SUBSTRING(dm.job_name,12,2) rev, "
@@ -573,12 +614,12 @@ class MySQLQuery(MySQLDB):
             "  dm.update_by_name, dm.update_time, "
             "  '1' barod_size "
             "FROM mi_db.drawings_marked dm "
-            f"WHERE dm.job_name {like_sql} '{job_sql}' "
+            f"WHERE dm.job_name {operator} %s "
             "  AND LENGTH(dm.job_name) = 13 "
             "  AND dm.marks_json IS NOT NULL "
             "ORDER BY dm.update_time DESC"
         )
-        return self.select_dict(sql)
+        return self.select_dict(sql, params=[job_sql])
 
     # ── 添加 / 更新标记 ──
 
@@ -670,11 +711,11 @@ class MySQLQuery(MySQLDB):
             "  T.mi_time "
             "FROM project_status.project_status_jobmanage T, "
             "  project_status.project_status_usermanage N "
-            f"WHERE T.job = '{job_name[0:13].upper()}' "
+            "WHERE T.job = %s "
             "  AND N.name = T.mi_maker "
             "ORDER BY T.mi_time"
         )
-        result = self.select_dict(sql)
+        result = self.select_dict(sql, params=[job_name[0:13].upper()])
         return result[0] if result else {}
 
     # ── 工号查询 ──
@@ -695,14 +736,17 @@ class MySQLQuery(MySQLDB):
         result = ["", ""]
         if not names or not names[1]:
             return result
+        # 列名白名单校验，防止 SQL 注入
+        if names[0] not in ('emp_no', 'name'):
+            raise ValueError(f"Invalid column name: {names[0]}")
         sql = (
             "SELECT N.emp_no, N.name "
             "FROM project_status.project_status_usermanage N "
-            f"WHERE N.{names[0]} = '{names[1]}' "
-            f"  AND N.department LIKE '{dept}' "
-            f"  AND N.Org_Code = '{orgc}'"
+            f"WHERE N.{names[0]} = %s "
+            "  AND N.department LIKE %s "
+            "  AND N.Org_Code = %s"
         )
-        rows = self.select_dict(sql)
+        rows = self.select_dict(sql, params=[names[1], dept, orgc])
         if rows:
             result[0] = rows[0].get("emp_no", "")
             result[1] = rows[0].get("name", "")
